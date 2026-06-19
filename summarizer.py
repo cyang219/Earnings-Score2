@@ -23,6 +23,7 @@ Step 2 - Rewrite everything that remains as a telegraphic-style rewrite:
 - Each bullet must be written in telegraphic style: drop filler words, articles, and connective phrasing; keep it terse and clipped, like a notetaker's shorthand
 - Do not drop or summarize away any substantive content, facts, numbers, or claims - every piece of real information from the transcript must appear in some bullet
 - Preserve the speaker attribution and the original order of the discussion (group bullets under the speaker's name/role if speaker names are identifiable in the transcript)
+- Insert a standalone `**Q&A**` heading on its own line exactly once, immediately before the first analyst/audience question, marking the boundary between prepared remarks and the Q&A session. Do not fold this heading into any speaker's name (e.g. do not write "**Jane Doe — Q&A**") - it must appear by itself as its own line, then each analyst's name/role bullet group follows below it as usual.
 
 Output only the resulting bulleted telegraphic rewrite. Do not add commentary, preamble, or a summary of what you did."""
 
