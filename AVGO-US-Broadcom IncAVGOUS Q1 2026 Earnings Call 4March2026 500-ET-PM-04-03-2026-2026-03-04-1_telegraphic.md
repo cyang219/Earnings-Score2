@@ -79,7 +79,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Blayne Curtis – Jefferies**
 

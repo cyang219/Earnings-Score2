@@ -9,8 +9,9 @@ from anthropic import Anthropic
 from openpyxl.utils import column_index_from_string
 
 MODEL = "claude-sonnet-4-6"
-READTHROUGH_MODEL = "claude-opus-4-8"
-READTHROUGH_EFFORT = "low"
+THEMES_EFFORT = "high"
+READTHROUGH_MODEL = "claude-sonnet-4-6"
+READTHROUGH_EFFORT = "medium"
 THEME_DELTA_MODEL = "claude-sonnet-4-6"
 THEME_DELTA_EFFORT = "medium"
 
@@ -312,6 +313,123 @@ def build_bullbear_system_prompt(ordered_quarters) -> str:
     )
 
 
+MERGED_PROMPT_TEMPLATE = """You are an equity research analyst producing two outputs from the same set of earnings calls: (1) sector read-throughs, and (2) forward 6–9 month bull/bear thesis changes. You will be given a set of consecutive quarterly earnings call transcripts (or telegraphic summaries) from a single publicly traded company, ordered oldest to newest. The same task applies regardless of the company, sector, fiscal calendar, or number of quarters provided.
+
+DEFINITIONS (canonical — all later references point back here):
+- EXTERNAL BUSINESS FACTORS = industry/macro conditions management describes that read across to sector peers (e.g., end-market demand, customer/end-user spending, pricing environment, input or supply availability, competitive dynamics, regulatory or macro conditions). EXCLUDES the reporting company's own KPIs and internal initiatives (e.g., its own revenue, margins, segment results, product roadmap, capital returns, restructuring). The READ-THROUGH track uses external business factors ONLY.
+- FORWARD EXPECTATION = what an investor on a given side (bull or bear) would, based on that quarter's call, expect to happen to the business over the next 6–9 months. Infer expectations from the whole call but PRIORITIZE the Q&A dialogue, where management is tested and forward-looking concerns surface.
+- BULL EXPECTATION = the forward case a bullish investor would hold; BEAR EXPECTATION = the forward case a bearish investor would hold. Each delta is evaluated separately for both sides. The two sides are NOT required to move in opposite directions — independently assess each side's evidence; it is valid for both to strengthen, both to weaken, or both to stay stable on the same delta.
+- DELTA DIRECTION = in each delta the FIRST-named quarter is the LATER quarter and the SECOND-named quarter is the EARLIER quarter (e.g., in "Q-2_vs_Q-3", Q-2 is later, Q-3 is earlier). A signal describes how the later quarter changed versus the earlier quarter.
+- DELTA = a QoQ comparison between one quarter and the immediately preceding quarter. With N quarters there are N-1 deltas, each comparing adjacent quarters.
+- ANALYSIS INDEPENDENCE = the READ-THROUGH track and the BULL/BEAR track are three separate analyses of the same delta (read-through, bull, bear) and MUST be derived independently of one another. Do not let the dominant factor, direction, or framing chosen for one track carry over into another track for the same delta — each track re-derives its own dominant evidence from the full call from scratch, even if that means reaching a different direction than another track. In particular: a track's signal must NEVER be softened toward Stable, or strengthened/weakened, merely because another track on the same delta already moved in some direction — judge each track solely on the size and concreteness of ITS OWN QoQ evidence. Complete all of Step 1 and Step 2 for the READ-THROUGH track for every delta before starting Step 1 for the BULL/BEAR track; when working the BULL/BEAR track, do not re-read or reference the READ-THROUGH scratchpad lines you already wrote.
+
+{quarter_mapping}
+
+TASK:
+
+=== READ-THROUGH TRACK ===
+
+Step 1A: QUARTER-LEVEL READ-THROUGH. For each quarter in the QUARTER MAPPING, infer the industry-wide read-through from management's message, using external business factors only (see DEFINITIONS). Use this only as internal reasoning; do not output Step 1A.
+Step 2A: QOQ SIGNAL SCRATCHPAD — READ-THROUGH. Start a <scratchpad> to assign a signal to each delta defined in the QUARTER MAPPING. Judge each signal only by how the later quarter's read-through changed versus the earlier quarter (see DELTA DIRECTION), not by whether the later quarter is positive or negative in absolute terms.
+
+Select the single dominant external business factor for each delta using this ordered tie-breaker (apply in order; stop at the first criterion that picks one factor):
+   1. A factor management discusses in BOTH quarters of the delta.
+   2. Of those, the factor most relevant to industry peers / sector read-through.
+   3. Of those, the factor management emphasizes most (most airtime / strongest language).
+   4. Of those, a recurring factor over a one-off factor.
+
+Classify the change in the dominant factor's read-through using this rule, then assign the signal:
+   - Strengthened: the later quarter shows a clear positive change in the dominant external factor — e.g. management escalates language (such as "strong" to "insatiable"), raises a quantified external indicator, broadens the demand base, or removes a previously cited concern.
+   - Weakened: the later quarter shows a clear negative change — management softens language, introduces or amplifies an external headwind, narrows the demand base, or walks back prior optimism.
+   - Stable: no clear directional change — the dominant factor's framing, language intensity, and any cited external indicators are materially unchanged, OR positive and negative shifts in that factor roughly offset.
+
+A Strengthened or Weakened signal requires a specific, citable QoQ change in the dominant factor (a language shift, a changed external indicator, or a changed demand-base statement). If no such concrete change can be named, the signal must be Stable. When evidence is genuinely balanced or ambiguous, default to Stable rather than guessing a direction.
+
+Copy the exact template below and fill in the brackets, producing one line per delta. Do NOT write anything else inside this part of the scratchpad.
+
+{readthrough_scratchpad_format}
+   - Signal must be exactly one of: Strengthened, Weakened, Stable
+   - Driver must be concrete, evidence-linked, and an external business factor
+
+=== BULL/BEAR TRACK ===
+
+Step 1B: FORWARD 6–9 MONTH BULL/BEAR EXPECTATIONS. For each quarter in the QUARTER MAPPING, infer both the bull and the bear forward expectation for the next 6–9 months (see DEFINITIONS), prioritizing the Q&A dialogue. Treat this as a fresh read of the transcripts — do not consult or reuse the dominant factor you selected for the READ-THROUGH track (see ANALYSIS INDEPENDENCE). Use this only as internal reasoning; do not output Step 1B.
+
+Step 2B: QOQ SIGNAL SCRATCHPAD — BULL/BEAR. Continue the same <scratchpad> to assign a signal to each side (bull and bear) of each delta defined in the QUARTER MAPPING. You MUST evaluate every delta. Judge each signal only by how the later quarter's forward expectation changed versus the earlier quarter (see DELTA DIRECTION), not by how positive or negative the expectation is in absolute terms, and not by the READ-THROUGH signal already assigned to that delta (see ANALYSIS INDEPENDENCE).
+
+Classify the change in each side's forward expectation using this rule, then assign the signal:
+   - Strengthened: the later quarter shows a clear positive change in that side's forward case — e.g. management escalates supporting language, raises or affirms forward guidance/indicators that side relies on, resolves a prior concern, or analysts' Q&A questions shift from probing a risk to confirming an improvement (and management's answer corroborates it).
+   - Weakened: the later quarter shows a clear negative change in that side's forward case — management softens or walks back supporting language, introduces or amplifies a forward risk, or analysts' Q&A questions surface a new risk that management cannot fully address.
+   - Stable: no clear directional change — the forward case's framing, language intensity, and relevant forward indicators are materially unchanged, OR positive and negative shifts roughly offset.
+A Strengthened or Weakened signal requires a specific, citable QoQ change in that side's forward case (a language shift, a changed forward indicator/guidance, or new Q&A evidence). If no such concrete change can be named, the signal must be Stable. When evidence is genuinely balanced or ambiguous, default to Stable rather than guessing a direction. If the dominant evidence for this side is the same underlying fact the READ-THROUGH track already used, that is fine — but you must reach that conclusion by independently weighing this side's own evidence, not by copying the READ-THROUGH track's signal.
+
+Copy the exact template below and fill in the brackets, producing the required lines per delta. Do NOT write anything else inside this part of the scratchpad.
+{bullbear_scratchpad_format}
+</scratchpad>
+   - Signal must be exactly one of: Strengthened, Weakened, Stable
+   - Driver must be concrete, evidence-linked, and tied to that side's forward case
+   - Each signal must be evidence-linked to that side's forward case for those specific quarters
+
+=== OUTPUT FIELDS ===
+
+Step 3: SIGNAL/TOPIC FIELDS. Derive each track's signal field mechanically from its own scratchpad Signal for the same delta (and same side, for bull/bear) — not an independent judgment, and not derived from another track's field:
+   - Strengthened -> "↑:"   |   Weakened -> "↓:"   |   Stable -> "→:"
+If a field and its own scratchpad Signal would ever disagree, the scratchpad Signal is authoritative.
+
+Step 4: DESCRIPTION FIELDS.
+   - READ-THROUGH "read_through" / "rationale": each exactly one sentence (external business factors only). "read_through" states the inferred macro/industry read-through for the later quarter. "rationale" (a) cites one specific QoQ contrast between the two quarters, and (b) explains why that contrast caused the read-through to strengthen, weaken, or stay stable, matching the delta's signal direction. {description_length_rule} across the two fields combined. Omit the final period "." at the end of both fields.
+   - BULL/BEAR "expectation" / "context" (per side): "expectation" is one sentence stating the inferred forward-looking 6–9 month expectation for the later quarter on that side. "context" is one sentence (a) citing one specific QoQ change in that side's forward case and (b) explaining why that change caused the expectation to strengthen, weaken, or stay stable, matching that side's signal direction. {description_length_rule} across the "expectation" and "context" fields combined. STYLE: abridged, telegraphic style with abbreviations. Omit the final period "." at the end of both fields.
+
+Before producing the JSON, verify for each delta that: (a) the read-through rationale's described direction matches its signal arrow and its own scratchpad Signal; (b) each side's context's described direction matches its topic arrow and its own scratchpad Signal; (c) no track's signal was adjusted to agree or disagree with another track's signal for the same delta (see ANALYSIS INDEPENDENCE) — if any check fails, the relevant scratchpad Signal governs; revise the field to match.
+
+JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per delta in the same order as the scratchpad. No text before or after the JSON block. Escape any double quotes inside field values.
+
+```json
+{json_format}
+```"""
+
+
+def build_merged_scratchpad_format(labels: list[str]) -> str:
+    readthrough_lines = build_readthrough_scratchpad_format(labels)
+    bullbear_lines = build_bullbear_scratchpad_format(labels)
+    return readthrough_lines, bullbear_lines
+
+
+def build_merged_json_skeleton(labels: list[str]) -> str:
+    entries = [
+        f"""    {{
+      "period": "{later}_vs_{earlier}",
+      "signal": "↑: or ↓: or →:",
+      "read_through": "one-sentence macro/industry read-through",
+      "rationale": "one-sentence QoQ contrast explaining the read-through signal direction",
+      "bull": {{
+        "topic": "↑: or ↓: or →:",
+        "expectation": "one-sentence bullish forward-looking expectation",
+        "context": "one-sentence QoQ context explaining the bull signal direction"
+      }},
+      "bear": {{
+        "topic": "↑: or ↓: or →:",
+        "expectation": "one-sentence bearish forward-looking expectation",
+        "context": "one-sentence QoQ context explaining the bear signal direction"
+      }}
+    }}"""
+        for later, earlier in build_delta_pairs(labels)
+    ]
+    return "{\n  \"historical_analysis\": [\n" + ",\n".join(entries) + "\n  ]\n}"
+
+
+def build_merged_system_prompt(ordered_quarters) -> str:
+    labels = [item["label"] for item in ordered_quarters]
+    readthrough_scratchpad_format, bullbear_scratchpad_format = build_merged_scratchpad_format(labels)
+    return MERGED_PROMPT_TEMPLATE.format(
+        quarter_mapping=build_readthrough_quarter_mapping(ordered_quarters),
+        readthrough_scratchpad_format=readthrough_scratchpad_format,
+        bullbear_scratchpad_format=bullbear_scratchpad_format,
+        description_length_rule=READTHROUGH_DESCRIPTION_LENGTH_RULE,
+        json_format=build_merged_json_skeleton(labels),
+    )
+
+
 def build_theme_list(themes: list[str]) -> str:
     return "\n".join(f"- {theme}" for theme in themes)
 
@@ -365,12 +483,17 @@ def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item)
 # ANALYSIS CALLS
 # ============================================================
 
+def extract_qa_section(content: str) -> str:
+    match = re.search(r"QUESTION AND ANSWER SECTION", content, flags=re.IGNORECASE)
+    return content[match.start():] if match else content
+
+
 def build_themes_params(ordered_quarters) -> dict:
     header = "Input Periods: " + ", ".join(
         f"{item['label']}:{item['period']}" for item in ordered_quarters
     )
     sections = "\n\n".join(
-        f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
+        f"=== {item['label']} ({item['period']}) ===\n{extract_qa_section(item['content'])}"
         for item in ordered_quarters
     )
     user_content = f"{header}\n\n{sections}"
@@ -378,8 +501,8 @@ def build_themes_params(ordered_quarters) -> dict:
     return {
         "model": MODEL,
         "max_tokens": 32000,
-        "temperature": 1,
-        "thinking": {"type": "enabled", "budget_tokens": 20000},
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": THEMES_EFFORT},
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_content}],
     }
@@ -433,6 +556,21 @@ def build_bullbear_params(ordered_quarters) -> dict:
     }
 
 
+def build_merged_params(ordered_quarters) -> dict:
+    sections = "\n\n".join(
+        f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
+        for item in ordered_quarters
+    )
+    return {
+        "model": READTHROUGH_MODEL,
+        "max_tokens": 32000,
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": READTHROUGH_EFFORT},
+        "system": build_merged_system_prompt(ordered_quarters),
+        "messages": [{"role": "user", "content": sections}],
+    }
+
+
 def build_theme_delta_params(themes: list[str], later_item, earlier_item) -> dict:
     sections = "\n\n".join(
         f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
@@ -460,6 +598,10 @@ def build_bullbear_batch_request(custom_id: str, ordered_quarters) -> dict:
     return {"custom_id": custom_id, "params": build_bullbear_params(ordered_quarters)}
 
 
+def build_merged_batch_request(custom_id: str, ordered_quarters) -> dict:
+    return {"custom_id": custom_id, "params": build_merged_params(ordered_quarters)}
+
+
 def build_theme_delta_batch_request(custom_id: str, themes: list[str], later_item, earlier_item) -> dict:
     return {"custom_id": custom_id, "params": build_theme_delta_params(themes, later_item, earlier_item)}
 
@@ -482,6 +624,11 @@ def analyze_readthrough(client: Anthropic, ordered_quarters):
 
 def analyze_bullbear(client: Anthropic, ordered_quarters):
     raw_text = _stream_text(client, build_bullbear_params(ordered_quarters))
+    return parse_fenced_json_response(raw_text)
+
+
+def analyze_merged(client: Anthropic, ordered_quarters):
+    raw_text = _stream_text(client, build_merged_params(ordered_quarters))
     return parse_fenced_json_response(raw_text)
 
 
@@ -515,17 +662,23 @@ def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters
         ranked_themes = themes_result.get(later_item["period"], {}).get("themes", [])
         if not ranked_themes:
             continue
-        common_id = f"{delta_key}__common"
-        ranked_id = f"{delta_key}__ranked"
-        requests.append(build_theme_delta_batch_request(common_id, COMMON_THEME_SET, later_item, earlier_item))
-        requests.append(build_theme_delta_batch_request(ranked_id, ranked_themes, later_item, earlier_item))
+        merged_id = f"{delta_key}__themes"
+        merged_themes = COMMON_THEME_SET + ranked_themes
+        requests.append(build_theme_delta_batch_request(merged_id, merged_themes, later_item, earlier_item))
         manifest[delta_key] = {
-            "common_id": common_id,
-            "ranked_id": ranked_id,
+            "merged_id": merged_id,
             "ranked_themes": ranked_themes,
         }
     batch = client.messages.batches.create(requests=requests)
     return batch.id, manifest
+
+
+def split_theme_delta_result(merged_result: dict, ranked_themes: list):
+    ranked_set = set(ranked_themes)
+    entries = merged_result.get("theme_analysis", []) if merged_result else []
+    common_result = {"theme_analysis": [e for e in entries if e["theme"] not in ranked_set]}
+    ranked_result = {"theme_analysis": [e for e in entries if e["theme"] in ranked_set]}
+    return common_result, ranked_result
 
 
 def fetch_raw_batch_results(client: Anthropic, batch_id: str) -> dict:
@@ -941,23 +1094,18 @@ if theme_md_files:
 
                             theme_delta_by_key = {}
                             for delta_key, ids in manifest.items():
-                                common_text, common_err = raw_results.get(ids["common_id"], (None, "missing"))
-                                common_result = None
-                                if common_text:
-                                    common_result, common_parse_err = parse_fenced_json_response(common_text)
-                                    if common_parse_err:
-                                        st.error(f"{delta_key} (common): {common_parse_err}")
+                                merged_text, merged_err = raw_results.get(ids["merged_id"], (None, "missing"))
+                                merged_result = None
+                                if merged_text:
+                                    merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
+                                    if merged_parse_err:
+                                        st.error(f"{delta_key}: {merged_parse_err}")
                                 else:
-                                    st.error(f"{delta_key} (common): {common_err}")
+                                    st.error(f"{delta_key}: {merged_err}")
 
-                                ranked_text, ranked_err = raw_results.get(ids["ranked_id"], (None, "missing"))
-                                ranked_result = None
-                                if ranked_text:
-                                    ranked_result, ranked_parse_err = parse_fenced_json_response(ranked_text)
-                                    if ranked_parse_err:
-                                        st.error(f"{delta_key} (ranked): {ranked_parse_err}")
-                                else:
-                                    st.error(f"{delta_key} (ranked): {ranked_err}")
+                                common_result, ranked_result = split_theme_delta_result(
+                                    merged_result, ids["ranked_themes"]
+                                )
 
                                 theme_delta_by_key[delta_key] = {
                                     "common": common_result,
@@ -1034,19 +1182,16 @@ if theme_md_files:
                         st.error(f"{delta_key}: no ranked themes found for {later_item['period']}")
                         continue
 
-                    with st.spinner(f"Analyzing common theme set for {delta_key}..."):
-                        common_result, common_error = analyze_theme_delta(
-                            client, COMMON_THEME_SET, later_item, earlier_item
-                        )
-                    with st.spinner(f"Analyzing ranked theme set for {delta_key}..."):
-                        ranked_result, ranked_error = analyze_theme_delta(
-                            client, ranked_themes, later_item, earlier_item
+                    merged_themes = COMMON_THEME_SET + ranked_themes
+                    with st.spinner(f"Analyzing themes for {delta_key}..."):
+                        merged_result, merged_error = analyze_theme_delta(
+                            client, merged_themes, later_item, earlier_item
                         )
 
-                    if common_error:
-                        st.error(f"{delta_key} (common themes): {common_error}")
-                    if ranked_error:
-                        st.error(f"{delta_key} (ranked themes): {ranked_error}")
+                    if merged_error:
+                        st.error(f"{delta_key}: {merged_error}")
+
+                    common_result, ranked_result = split_theme_delta_result(merged_result, ranked_themes)
 
                     theme_delta_by_key[delta_key] = {
                         "common": common_result,

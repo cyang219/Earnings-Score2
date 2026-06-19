@@ -106,7 +106,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Vivek Arya — BofA Securities**
 - Asked: confirms $73B AI backlog over 18 months implies ~$50B+ for FY2026; also asked about customer-owned tooling risk and XPU content/share at largest customer
