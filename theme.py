@@ -9,8 +9,9 @@ from anthropic import Anthropic
 from openpyxl.utils import column_index_from_string
 
 MODEL = "claude-sonnet-4-6"
-READTHROUGH_MODEL = "claude-opus-4-8"
-READTHROUGH_EFFORT = "low"
+THEMES_EFFORT = "high"
+READTHROUGH_MODEL = "claude-sonnet-4-6"
+READTHROUGH_EFFORT = "medium"
 THEME_DELTA_MODEL = "claude-sonnet-4-6"
 THEME_DELTA_EFFORT = "medium"
 
@@ -378,8 +379,8 @@ def build_themes_params(ordered_quarters) -> dict:
     return {
         "model": MODEL,
         "max_tokens": 32000,
-        "temperature": 1,
-        "thinking": {"type": "enabled", "budget_tokens": 20000},
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": THEMES_EFFORT},
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_content}],
     }
@@ -515,17 +516,23 @@ def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters
         ranked_themes = themes_result.get(later_item["period"], {}).get("themes", [])
         if not ranked_themes:
             continue
-        common_id = f"{delta_key}__common"
-        ranked_id = f"{delta_key}__ranked"
-        requests.append(build_theme_delta_batch_request(common_id, COMMON_THEME_SET, later_item, earlier_item))
-        requests.append(build_theme_delta_batch_request(ranked_id, ranked_themes, later_item, earlier_item))
+        merged_id = f"{delta_key}__themes"
+        merged_themes = COMMON_THEME_SET + ranked_themes
+        requests.append(build_theme_delta_batch_request(merged_id, merged_themes, later_item, earlier_item))
         manifest[delta_key] = {
-            "common_id": common_id,
-            "ranked_id": ranked_id,
+            "merged_id": merged_id,
             "ranked_themes": ranked_themes,
         }
     batch = client.messages.batches.create(requests=requests)
     return batch.id, manifest
+
+
+def split_theme_delta_result(merged_result: dict, ranked_themes: list):
+    ranked_set = set(ranked_themes)
+    entries = merged_result.get("theme_analysis", []) if merged_result else []
+    common_result = {"theme_analysis": [e for e in entries if e["theme"] not in ranked_set]}
+    ranked_result = {"theme_analysis": [e for e in entries if e["theme"] in ranked_set]}
+    return common_result, ranked_result
 
 
 def fetch_raw_batch_results(client: Anthropic, batch_id: str) -> dict:
@@ -941,23 +948,18 @@ if theme_md_files:
 
                             theme_delta_by_key = {}
                             for delta_key, ids in manifest.items():
-                                common_text, common_err = raw_results.get(ids["common_id"], (None, "missing"))
-                                common_result = None
-                                if common_text:
-                                    common_result, common_parse_err = parse_fenced_json_response(common_text)
-                                    if common_parse_err:
-                                        st.error(f"{delta_key} (common): {common_parse_err}")
+                                merged_text, merged_err = raw_results.get(ids["merged_id"], (None, "missing"))
+                                merged_result = None
+                                if merged_text:
+                                    merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
+                                    if merged_parse_err:
+                                        st.error(f"{delta_key}: {merged_parse_err}")
                                 else:
-                                    st.error(f"{delta_key} (common): {common_err}")
+                                    st.error(f"{delta_key}: {merged_err}")
 
-                                ranked_text, ranked_err = raw_results.get(ids["ranked_id"], (None, "missing"))
-                                ranked_result = None
-                                if ranked_text:
-                                    ranked_result, ranked_parse_err = parse_fenced_json_response(ranked_text)
-                                    if ranked_parse_err:
-                                        st.error(f"{delta_key} (ranked): {ranked_parse_err}")
-                                else:
-                                    st.error(f"{delta_key} (ranked): {ranked_err}")
+                                common_result, ranked_result = split_theme_delta_result(
+                                    merged_result, ids["ranked_themes"]
+                                )
 
                                 theme_delta_by_key[delta_key] = {
                                     "common": common_result,
@@ -1034,19 +1036,16 @@ if theme_md_files:
                         st.error(f"{delta_key}: no ranked themes found for {later_item['period']}")
                         continue
 
-                    with st.spinner(f"Analyzing common theme set for {delta_key}..."):
-                        common_result, common_error = analyze_theme_delta(
-                            client, COMMON_THEME_SET, later_item, earlier_item
-                        )
-                    with st.spinner(f"Analyzing ranked theme set for {delta_key}..."):
-                        ranked_result, ranked_error = analyze_theme_delta(
-                            client, ranked_themes, later_item, earlier_item
+                    merged_themes = COMMON_THEME_SET + ranked_themes
+                    with st.spinner(f"Analyzing themes for {delta_key}..."):
+                        merged_result, merged_error = analyze_theme_delta(
+                            client, merged_themes, later_item, earlier_item
                         )
 
-                    if common_error:
-                        st.error(f"{delta_key} (common themes): {common_error}")
-                    if ranked_error:
-                        st.error(f"{delta_key} (ranked themes): {ranked_error}")
+                    if merged_error:
+                        st.error(f"{delta_key}: {merged_error}")
+
+                    common_result, ranked_result = split_theme_delta_result(merged_result, ranked_themes)
 
                     theme_delta_by_key[delta_key] = {
                         "common": common_result,
