@@ -108,7 +108,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Harlan Sur – JPMorgan**
 - Q: FY2026 AI math: 2x H2 vs. H1 implies $60B+, but $56B guidance implies H2 only ~1.5x H1 with Q4 down sequentially; also, prior $73B 18-month backlog appeared to deliver ~80%+ in FY2026/first four quarters — does updated 18-month backlog reach $200B+?

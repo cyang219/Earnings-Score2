@@ -75,6 +75,8 @@
 
 ---
 
+**QUESTION AND ANSWER SECTION**
+
 **Ross Seymore (Deutsche Bank) — Q&A**
 
 - Asked: what drove significant FY2026 AI outlook improvement vs. prior quarter — new fourth customer's $10B backlog or stronger demand from existing three?
