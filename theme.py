@@ -366,12 +366,17 @@ def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item)
 # ANALYSIS CALLS
 # ============================================================
 
+def extract_qa_section(content: str) -> str:
+    match = re.search(r"\*\*Q&A\*\*", content)
+    return content[match.start():] if match else content
+
+
 def build_themes_params(ordered_quarters) -> dict:
     header = "Input Periods: " + ", ".join(
         f"{item['label']}:{item['period']}" for item in ordered_quarters
     )
     sections = "\n\n".join(
-        f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
+        f"=== {item['label']} ({item['period']}) ===\n{extract_qa_section(item['content'])}"
         for item in ordered_quarters
     )
     user_content = f"{header}\n\n{sections}"
