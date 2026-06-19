@@ -206,7 +206,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Timothy Arcuri (UBS) — Customer LTAs**
 - Asking about customer LTAs; hearing D5 bundled with HBM and NAND; LTAs stretching through 2026, some into 2027–2028

@@ -105,7 +105,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Timothy Arcuri (UBS) — Q:**
 - How does HBM TAM scale with accelerator TAM; is there an asymptote on HBM attached to GPUs/ASICs?

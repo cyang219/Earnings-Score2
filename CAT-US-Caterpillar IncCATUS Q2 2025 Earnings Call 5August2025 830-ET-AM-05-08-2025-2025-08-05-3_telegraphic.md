@@ -127,6 +127,8 @@
 
 ---
 
+**QUESTION AND ANSWER SECTION**
+
 **Tami Zakaria – JPMorgan**
 
 - Without tariff impact, operating margin would have been in top half of target range; how to think about medium-to-long-term tariff mitigation — sourcing changes, pricing recoupment, or structural lower margin embedded in long-term target?

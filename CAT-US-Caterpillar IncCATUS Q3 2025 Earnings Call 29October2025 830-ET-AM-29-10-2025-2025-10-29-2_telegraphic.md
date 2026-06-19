@@ -138,7 +138,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Kyle Menges (Citi) — question**
 - Asked about data center prime power opportunity at Solar; latent capacity; deliverable volume in next year; size of data center prime power backlog

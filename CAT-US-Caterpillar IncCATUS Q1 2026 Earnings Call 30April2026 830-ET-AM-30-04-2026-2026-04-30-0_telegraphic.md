@@ -80,7 +80,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Rob Wertheimer (Melius Research)**
 - Q: Which end market predominantly drove additional capacity expansion decision — prime/backup power, oil & gas? Is timing linear or lump sum toward end of expansion period?

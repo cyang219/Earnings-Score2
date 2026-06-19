@@ -209,7 +209,7 @@
 
 ---
 
-**Q&A**
+**QUESTION AND ANSWER SECTION**
 
 **Mircea Dobre – Baird**
 - Asked about order/backlog growth drivers across segments outside P&E; pricing/margin protection for orders stretching into 2027+
