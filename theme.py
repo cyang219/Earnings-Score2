@@ -647,8 +647,7 @@ BATCH_STATE_FILENAME = "theme_batch_state.json"
 def submit_stage1_batch(client: Anthropic, ordered_quarters) -> str:
     requests = [
         build_themes_batch_request("themes", ordered_quarters),
-        build_readthrough_batch_request("readthrough", ordered_quarters),
-        build_bullbear_batch_request("bullbear", ordered_quarters),
+        build_merged_batch_request("merged", ordered_quarters),
     ]
     batch = client.messages.batches.create(requests=requests)
     return batch.id
@@ -671,6 +670,28 @@ def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters
         }
     batch = client.messages.batches.create(requests=requests)
     return batch.id, manifest
+
+
+def split_merged_result(merged_result: dict):
+    entries = merged_result.get("historical_analysis", []) if merged_result else []
+    readthrough_result = {
+        "historical_analysis": [
+            {
+                "period": e["period"],
+                "signal": e["signal"],
+                "read_through": e["read_through"],
+                "rationale": e["rationale"],
+            }
+            for e in entries
+        ]
+    }
+    bullbear_result = {
+        "historical_analysis": [
+            {"period": e["period"], "bull": e["bull"], "bear": e["bear"]}
+            for e in entries
+        ]
+    }
+    return readthrough_result, bullbear_result
 
 
 def split_theme_delta_result(merged_result: dict, ranked_themes: list):
@@ -1036,22 +1057,16 @@ if theme_md_files:
                             st.error("Stage 1 failed to produce themes - cannot submit stage 2.")
                         else:
                             readthrough_result = None
-                            rt_text, rt_err = raw_results.get("readthrough", (None, "missing"))
-                            if rt_text:
-                                readthrough_result, rt_parse_err = parse_fenced_json_response(rt_text)
-                                if rt_parse_err:
-                                    st.error(f"readthrough: {rt_parse_err}")
-                            else:
-                                st.error(f"readthrough: {rt_err}")
-
                             bullbear_result = None
-                            bb_text, bb_err = raw_results.get("bullbear", (None, "missing"))
-                            if bb_text:
-                                bullbear_result, bb_parse_err = parse_fenced_json_response(bb_text)
-                                if bb_parse_err:
-                                    st.error(f"bullbear: {bb_parse_err}")
+                            merged_text, merged_err = raw_results.get("merged", (None, "missing"))
+                            if merged_text:
+                                merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
+                                if merged_parse_err:
+                                    st.error(f"merged: {merged_parse_err}")
+                                else:
+                                    readthrough_result, bullbear_result = split_merged_result(merged_result)
                             else:
-                                st.error(f"bullbear: {bb_err}")
+                                st.error(f"merged: {merged_err}")
 
                             with st.spinner("Submitting stage 2 batch (per-delta theme analysis)..."):
                                 stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
