@@ -9,7 +9,7 @@ from anthropic import Anthropic
 from openpyxl.utils import column_index_from_string
 
 MODEL = "claude-sonnet-4-6"
-THEMES_EFFORT = "high"
+THEMES_EFFORT = "medium"
 READTHROUGH_MODEL = "claude-sonnet-4-6"
 READTHROUGH_EFFORT = "medium"
 THEME_DELTA_MODEL = "claude-sonnet-4-6"
