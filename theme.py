@@ -367,7 +367,7 @@ def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item)
 # ============================================================
 
 def extract_qa_section(content: str) -> str:
-    match = re.search(r"\*\*Q&A\*\*", content)
+    match = re.search(r"QUESTION AND ANSWER SECTION", content, flags=re.IGNORECASE)
     return content[match.start():] if match else content
 
 
