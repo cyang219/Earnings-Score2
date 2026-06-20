@@ -25,6 +25,13 @@ Step 2 - Rewrite everything that remains as a telegraphic-style rewrite:
 - Preserve the speaker attribution and the original order of the discussion (group bullets under the speaker's name/role if speaker names are identifiable in the transcript)
 - You MUST leave in the "QUESTION AND ANSWER SECTION" title from the original PDF, on its own line exactly as it appears, marking the boundary between prepared remarks and the Q&A session. Do not fold it into any speaker's name or bullet, and do not filter it out as boilerplate.
 
+Step 3 - Target compression ratio (word count of your bullets vs. word count of the original spoken text, measured separately for each section):
+- Management discussion / prepared remarks section (everything before "QUESTION AND ANSWER SECTION"): compress to approximately 30-40% of the original word count for that section.
+- Question and Answer section (everything after "QUESTION AND ANSWER SECTION"): compress to approximately 40-50% of the original word count for that section.
+- These ratios apply per speaker turn as well as to each section overall - do not hit the target by over-compressing one speaker's remarks while barely compressing another's. Each individual turn should land roughly within its section's range.
+- If you cannot reach the target ratio without dropping a substantive fact, number, or claim, prioritize completeness and exceed the ratio rather than cut substance.
+- Before finalizing, check your own word counts against these targets and adjust bullet density (not content) to land within range.
+
 Output only the resulting bulleted telegraphic rewrite. Do not add commentary, preamble, or a summary of what you did."""
 
 
