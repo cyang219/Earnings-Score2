@@ -580,8 +580,8 @@ def split_historical_result(historical_result: dict):
             {
                 "period": e["period"],
                 "signal": e["signal"],
-                "read_through": e["read_through"],
-                "rationale": e["rationale"],
+                "read_through": e.get("read_through"),
+                "rationale": e.get("rationale"),
             }
             for e in entries
         ]
@@ -680,7 +680,9 @@ DB_VARIABLE_THEME_START_COL = DB_READTHROUGH_COL + 9
 DB_VARIABLE_THEME_HEADER_ROW = 4
 
 
-def format_signal_cell(signal: str, text: str, rationale: str) -> str:
+def format_signal_cell(signal: str, text: str = None, rationale: str = None) -> str:
+    if text is None and rationale is None:
+        return signal
     return f"{signal} {text} — {rationale}"
 
 
@@ -711,15 +713,17 @@ def write_db_row(
 ):
     if readthrough_entry is not None:
         worksheet.cell(row=row, column=DB_READTHROUGH_COL).value = format_signal_cell(
-            readthrough_entry["signal"], readthrough_entry["read_through"], readthrough_entry["rationale"]
+            readthrough_entry["signal"], readthrough_entry.get("read_through"), readthrough_entry.get("rationale")
         )
 
     if bullbear_entry is not None:
+        bull = bullbear_entry["bull"]
+        bear = bullbear_entry["bear"]
         worksheet.cell(row=row, column=DB_BULL_COL).value = format_signal_cell(
-            bullbear_entry["bull"]["signal"], bullbear_entry["bull"]["expectation"], bullbear_entry["bull"]["context"]
+            bull["signal"], bull.get("expectation"), bull.get("context")
         )
         worksheet.cell(row=row, column=DB_BEAR_COL).value = format_signal_cell(
-            bullbear_entry["bear"]["signal"], bullbear_entry["bear"]["expectation"], bullbear_entry["bear"]["context"]
+            bear["signal"], bear.get("expectation"), bear.get("context")
         )
 
     if theme_common_result is not None:
@@ -728,11 +732,13 @@ def write_db_row(
             entry = theme_entries.get(theme_name)
             if entry is None:
                 continue
+            mgmt = entry["mgmt"]
+            analyst = entry["analyst"]
             worksheet.cell(row=row, column=mgmt_col).value = format_signal_cell(
-                entry["mgmt"]["signal"], entry["mgmt"]["message"], entry["mgmt"]["rationale"]
+                mgmt["signal"], mgmt.get("message"), mgmt.get("rationale")
             )
             worksheet.cell(row=row, column=analyst_col).value = format_signal_cell(
-                entry["analyst"]["signal"], entry["analyst"]["tone"], entry["analyst"]["rationale"]
+                analyst["signal"], analyst.get("tone"), analyst.get("rationale")
             )
 
     if theme_variable_result is not None:
@@ -741,11 +747,13 @@ def write_db_row(
             rank_col, mgmt_col, analyst_col = get_or_create_variable_theme_columns(worksheet, theme_name)
             if ranked_themes and theme_name in ranked_themes:
                 worksheet.cell(row=row, column=rank_col).value = ranked_themes.index(theme_name) + 1
+            mgmt = entry["mgmt"]
+            analyst = entry["analyst"]
             worksheet.cell(row=row, column=mgmt_col).value = format_signal_cell(
-                entry["mgmt"]["signal"], entry["mgmt"]["message"], entry["mgmt"]["rationale"]
+                mgmt["signal"], mgmt.get("message"), mgmt.get("rationale")
             )
             worksheet.cell(row=row, column=analyst_col).value = format_signal_cell(
-                entry["analyst"]["signal"], entry["analyst"]["tone"], entry["analyst"]["rationale"]
+                analyst["signal"], analyst.get("tone"), analyst.get("rationale")
             )
 
 
@@ -876,6 +884,13 @@ if theme_md_files:
 
         rows_ready = db_file and sheet_name and len(period_rows) == len(parsed_quarters)
 
+        signal_only = st.checkbox(
+            "Signal-only output mode (lower cost)",
+            help="Outputs only the up/down/stable signal arrows and omits the message/tone/"
+            "rationale/read-through/expectation/context prose fields. Reduces output tokens; "
+            "does not change how signals are derived.",
+        )
+
         use_batch = st.checkbox(
             "Use batch processing (cheaper, slower - two async stages)",
             help="Submits the analysis as Batches API jobs at ~50% lower API cost. "
@@ -902,6 +917,7 @@ if theme_md_files:
                     st.session_state["theme_batch_state_folder"] = state_folder
                     st.session_state["theme_batch_stage"] = persisted["stage"]
                     st.session_state["theme_batch_id"] = persisted["batch_id"]
+                    st.session_state["theme_batch_signal_only"] = persisted.get("signal_only", False)
                     st.session_state["theme_batch_themes_result"] = persisted.get("themes_result")
                     st.session_state["theme_batch_readthrough_result"] = persisted.get("readthrough_result")
                     st.session_state["theme_batch_bullbear_result"] = persisted.get("bullbear_result")
@@ -910,10 +926,11 @@ if theme_md_files:
             if st.button("Submit batch", disabled=not (api_key and rows_ready and folder_valid)):
                 client = Anthropic(api_key=api_key)
                 with st.spinner("Submitting stage 1 batch (themes, read-through, bull/bear)..."):
-                    batch_id = submit_stage1_batch(client, parsed_quarters)
+                    batch_id = submit_stage1_batch(client, parsed_quarters, signal_only)
                 st.session_state["theme_batch_state_folder"] = state_folder
                 st.session_state["theme_batch_stage"] = "stage1"
                 st.session_state["theme_batch_id"] = batch_id
+                st.session_state["theme_batch_signal_only"] = signal_only
                 for key in (
                     "theme_batch_themes_result",
                     "theme_batch_readthrough_result",
@@ -921,7 +938,9 @@ if theme_md_files:
                     "theme_batch_stage2_manifest",
                 ):
                     st.session_state.pop(key, None)
-                save_theme_batch_state(state_folder, {"stage": "stage1", "batch_id": batch_id})
+                save_theme_batch_state(
+                    state_folder, {"stage": "stage1", "batch_id": batch_id, "signal_only": signal_only}
+                )
             elif not api_key:
                 st.info("Enter your Anthropic API key in the sidebar to begin.")
             elif not folder_valid:
@@ -969,8 +988,11 @@ if theme_md_files:
                             else:
                                 st.error(f"historical: {historical_err}")
 
+                            batch_signal_only = st.session_state.get("theme_batch_signal_only", False)
                             with st.spinner("Submitting stage 2 batch (per-delta theme analysis)..."):
-                                stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
+                                stage2_id, manifest = submit_stage2_batch(
+                                    client, themes_result, parsed_quarters, batch_signal_only
+                                )
 
                             st.session_state["theme_batch_stage"] = "stage2"
                             st.session_state["theme_batch_id"] = stage2_id
@@ -981,6 +1003,7 @@ if theme_md_files:
                             save_theme_batch_state(state_folder, {
                                 "stage": "stage2",
                                 "batch_id": stage2_id,
+                                "signal_only": batch_signal_only,
                                 "themes_result": themes_result,
                                 "readthrough_result": readthrough_result,
                                 "bullbear_result": bullbear_result,
@@ -1071,7 +1094,7 @@ if theme_md_files:
                 st.json(themes)
 
                 with st.spinner("Analyzing sector read-through and bull/bear signals..."):
-                    historical, historical_error = analyze_historical(client, parsed_quarters)
+                    historical, historical_error = analyze_historical(client, parsed_quarters, signal_only)
                 readthrough_lookup = {}
                 bullbear_lookup = {}
                 if historical_error:
@@ -1096,7 +1119,7 @@ if theme_md_files:
                     delta_themes = COMMON_THEME_SET + ranked_themes
                     with st.spinner(f"Analyzing themes for {delta_key}..."):
                         theme_delta_result, theme_delta_error = analyze_theme_delta(
-                            client, delta_themes, later_item, earlier_item
+                            client, delta_themes, later_item, earlier_item, signal_only
                         )
 
                     if theme_delta_error:
