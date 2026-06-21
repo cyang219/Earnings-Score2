@@ -241,9 +241,24 @@ def build_merged_scratchpad_format(labels: list[str]) -> str:
     return readthrough_lines, bullbear_lines
 
 
-def build_merged_json_skeleton(labels: list[str]) -> str:
-    entries = [
-        f"""    {{
+def build_merged_json_skeleton(labels: list[str], signal_only: bool = False) -> str:
+    if signal_only:
+        entries = [
+            f"""    {{
+      "period": "{later}_vs_{earlier}",
+      "signal": "↑: or ↓: or →:",
+      "bull": {{
+        "topic": "↑: or ↓: or →:"
+      }},
+      "bear": {{
+        "topic": "↑: or ↓: or →:"
+      }}
+    }}"""
+            for later, earlier in build_delta_pairs(labels)
+        ]
+    else:
+        entries = [
+            f"""    {{
       "period": "{later}_vs_{earlier}",
       "signal": "↑: or ↓: or →:",
       "read_through": "one-sentence macro/industry read-through",
@@ -259,9 +274,48 @@ def build_merged_json_skeleton(labels: list[str]) -> str:
         "context": "one-sentence QoQ context explaining the bear signal direction"
       }}
     }}"""
-        for later, earlier in build_delta_pairs(labels)
-    ]
+            for later, earlier in build_delta_pairs(labels)
+        ]
     return "{\n  \"historical_analysis\": [\n" + ",\n".join(entries) + "\n  ]\n}"
+
+
+def build_merged_step4_block(signal_only: bool) -> str:
+    if signal_only:
+        return (
+            'Step 4: SIGNAL FIELDS ONLY. Output only the "signal" field (read-through) and each side\'s '
+            '"topic" field (bull, bear), each derived directly from Step 3. Do not produce "read_through", '
+            '"rationale", "expectation", or "context" fields.'
+        )
+    return (
+        'Step 4: DESCRIPTION FIELDS.\n'
+        '   - READ-THROUGH "read_through" / "rationale": each exactly one sentence (external business factors only). '
+        '"read_through" states the inferred macro/industry read-through for the later quarter. "rationale" (a) cites '
+        'one specific QoQ contrast between the two quarters, and (b) explains why that contrast caused the read-through '
+        'to strengthen, weaken, or stay stable, matching the delta\'s signal direction. {description_length_rule} across '
+        'the two fields combined. Omit the final period "." at the end of both fields.\n'
+        '   - BULL/BEAR "expectation" / "context" (per side): "expectation" is one sentence stating the inferred '
+        'forward-looking 6–9 month expectation for the later quarter on that side. "context" is one sentence (a) citing '
+        'one specific QoQ change in that side\'s forward case and (b) explaining why that change caused the expectation '
+        'to strengthen, weaken, or stay stable, matching that side\'s signal direction. {description_length_rule} across '
+        'the "expectation" and "context" fields combined. STYLE: abridged, telegraphic style with abbreviations. Omit '
+        'the final period "." at the end of both fields.'
+    )
+
+
+def build_merged_verification_block(signal_only: bool) -> str:
+    if signal_only:
+        return (
+            'Before producing the JSON, verify that no track\'s signal was adjusted to agree or disagree with another '
+            'track\'s signal for the same delta (see ANALYSIS INDEPENDENCE). If it was, the relevant scratchpad Signal '
+            'governs; revise to match.'
+        )
+    return (
+        'Before producing the JSON, verify for each delta that: (a) the read-through rationale\'s described direction '
+        'matches its signal arrow and its own scratchpad Signal; (b) each side\'s context\'s described direction matches '
+        'its topic arrow and its own scratchpad Signal; (c) no track\'s signal was adjusted to agree or disagree with '
+        'another track\'s signal for the same delta (see ANALYSIS INDEPENDENCE) — if any check fails, the relevant '
+        'scratchpad Signal governs; revise the field to match.'
+    )
 
 
 def build_merged_system_prompt(ordered_quarters) -> str:
@@ -295,9 +349,23 @@ def build_theme_delta_scratchpad_format(themes: list[str]) -> str:
     )
 
 
-def build_theme_delta_json_skeleton(themes: list[str]) -> str:
-    entries = [
-        f"""    {{
+def build_theme_delta_json_skeleton(themes: list[str], signal_only: bool = False) -> str:
+    if signal_only:
+        entries = [
+            f"""    {{
+      "theme": "{theme}",
+      "mgmt": {{
+        "signal": "↑: or ↓: or →:"
+      }},
+      "analyst": {{
+        "signal": "↑: or ↓: or →:"
+      }}
+    }}"""
+            for theme in themes
+        ]
+    else:
+        entries = [
+            f"""    {{
       "theme": "{theme}",
       "mgmt": {{
         "signal": "↑: or ↓: or →:",
@@ -310,9 +378,42 @@ def build_theme_delta_json_skeleton(themes: list[str]) -> str:
         "rationale": "one-sentence QoQ contrast explaining the signal direction"
       }}
     }}"""
-        for theme in themes
-    ]
+            for theme in themes
+        ]
     return "{\n  \"theme_analysis\": [\n" + ",\n".join(entries) + "\n  ]\n}"
+
+
+def build_theme_delta_step4_block(signal_only: bool) -> str:
+    if signal_only:
+        return (
+            'Step 4: SIGNAL FIELDS ONLY. For each theme, output only the "signal" field per side (mgmt and analyst), '
+            'derived directly from Step 3. Do not produce "message", "tone", or "rationale" fields.'
+        )
+    return (
+        'Step 4: MESSAGE/TONE AND RATIONALE FIELDS. For each theme, produce three fields per side (mgmt and analyst): '
+        '"signal" (the arrow from Step 3), then for mgmt "message" and for analyst "tone", and "rationale" for both:\n'
+        '- "message" (mgmt) / "tone" (analyst): one sentence stating the later-quarter management message or analyst '
+        'tone on that theme.\n'
+        '- "rationale": one sentence (a) citing one specific QoQ change on that theme and (b) explaining why it '
+        'improved, worsened, or stayed stable, matching that side\'s signal direction.\n'
+        '- {description_length_rule} across the "message"/"tone" field and its "rationale" field combined.\n'
+        '- STYLE: abridged, telegraphic style with abbreviations.\n'
+        '- Omit the final period "." at the end of every field.'
+    )
+
+
+def build_theme_delta_verification_block(signal_only: bool) -> str:
+    if signal_only:
+        return (
+            'Before producing the JSON, verify that (a) every theme in THEME LIST is present and (b) each theme\'s '
+            'mgmt and analyst signals comply with THEME INDEPENDENCE. If any disagree, the scratchpad Signal governs; '
+            'revise to match.'
+        )
+    return (
+        'Before producing the JSON, verify that (a) every theme in THEME LIST is present, (b) each theme\'s mgmt and '
+        'analyst signals comply with THEME INDEPENDENCE, and (c) each rationale\'s described direction matches its '
+        'signal arrow and the scratchpad Signal. If any disagree, the scratchpad Signal governs; revise to match.'
+    )
 
 
 def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item) -> str:
