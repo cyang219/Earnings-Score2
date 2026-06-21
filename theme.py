@@ -468,7 +468,7 @@ def parse_fenced_json_response(raw_text: str):
         return None, f"Failed to parse JSON response: {e}\n\nRaw response:\n{raw_text}"
 
 
-def build_merged_params(ordered_quarters) -> dict:
+def build_merged_params(ordered_quarters, signal_only: bool = False) -> dict:
     sections = "\n\n".join(
         f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
         for item in ordered_quarters
@@ -478,12 +478,12 @@ def build_merged_params(ordered_quarters) -> dict:
         "max_tokens": 32000,
         "thinking": {"type": "adaptive"},
         "output_config": {"effort": READTHROUGH_EFFORT},
-        "system": build_merged_system_prompt(ordered_quarters),
+        "system": build_merged_system_prompt(ordered_quarters, signal_only),
         "messages": [{"role": "user", "content": sections}],
     }
 
 
-def build_theme_delta_params(themes: list[str], later_item, earlier_item) -> dict:
+def build_theme_delta_params(themes: list[str], later_item, earlier_item, signal_only: bool = False) -> dict:
     sections = "\n\n".join(
         f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
         for item in (later_item, earlier_item)
@@ -493,7 +493,7 @@ def build_theme_delta_params(themes: list[str], later_item, earlier_item) -> dic
         "max_tokens": 32000,
         "thinking": {"type": "adaptive"},
         "output_config": {"effort": THEME_DELTA_EFFORT},
-        "system": build_theme_delta_system_prompt(themes, later_item, earlier_item),
+        "system": build_theme_delta_system_prompt(themes, later_item, earlier_item, signal_only),
         "messages": [{"role": "user", "content": sections}],
     }
 
@@ -502,12 +502,17 @@ def build_themes_batch_request(custom_id: str, ordered_quarters) -> dict:
     return {"custom_id": custom_id, "params": build_themes_params(ordered_quarters)}
 
 
-def build_merged_batch_request(custom_id: str, ordered_quarters) -> dict:
-    return {"custom_id": custom_id, "params": build_merged_params(ordered_quarters)}
+def build_merged_batch_request(custom_id: str, ordered_quarters, signal_only: bool = False) -> dict:
+    return {"custom_id": custom_id, "params": build_merged_params(ordered_quarters, signal_only)}
 
 
-def build_theme_delta_batch_request(custom_id: str, themes: list[str], later_item, earlier_item) -> dict:
-    return {"custom_id": custom_id, "params": build_theme_delta_params(themes, later_item, earlier_item)}
+def build_theme_delta_batch_request(
+    custom_id: str, themes: list[str], later_item, earlier_item, signal_only: bool = False
+) -> dict:
+    return {
+        "custom_id": custom_id,
+        "params": build_theme_delta_params(themes, later_item, earlier_item, signal_only),
+    }
 
 
 def _stream_text(client: Anthropic, params: dict) -> str:
@@ -521,13 +526,13 @@ def analyze_themes(client: Anthropic, ordered_quarters):
     return parse_themes_response(raw_text)
 
 
-def analyze_merged(client: Anthropic, ordered_quarters):
-    raw_text = _stream_text(client, build_merged_params(ordered_quarters))
+def analyze_merged(client: Anthropic, ordered_quarters, signal_only: bool = False):
+    raw_text = _stream_text(client, build_merged_params(ordered_quarters, signal_only))
     return parse_fenced_json_response(raw_text)
 
 
-def analyze_theme_delta(client: Anthropic, themes: list[str], later_item, earlier_item):
-    raw_text = _stream_text(client, build_theme_delta_params(themes, later_item, earlier_item))
+def analyze_theme_delta(client: Anthropic, themes: list[str], later_item, earlier_item, signal_only: bool = False):
+    raw_text = _stream_text(client, build_theme_delta_params(themes, later_item, earlier_item, signal_only))
     return parse_fenced_json_response(raw_text)
 
 
@@ -538,16 +543,16 @@ def analyze_theme_delta(client: Anthropic, themes: list[str], later_item, earlie
 BATCH_STATE_FILENAME = "theme_batch_state.json"
 
 
-def submit_stage1_batch(client: Anthropic, ordered_quarters) -> str:
+def submit_stage1_batch(client: Anthropic, ordered_quarters, signal_only: bool = False) -> str:
     requests = [
         build_themes_batch_request("themes", ordered_quarters),
-        build_merged_batch_request("merged", ordered_quarters),
+        build_merged_batch_request("merged", ordered_quarters, signal_only),
     ]
     batch = client.messages.batches.create(requests=requests)
     return batch.id
 
 
-def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters):
+def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters, signal_only: bool = False):
     requests = []
     manifest = {}
     for later_item, earlier_item in zip(ordered_quarters[1:], ordered_quarters[:-1]):
@@ -557,7 +562,9 @@ def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters
             continue
         merged_id = f"{delta_key}__themes"
         merged_themes = COMMON_THEME_SET + ranked_themes
-        requests.append(build_theme_delta_batch_request(merged_id, merged_themes, later_item, earlier_item))
+        requests.append(
+            build_theme_delta_batch_request(merged_id, merged_themes, later_item, earlier_item, signal_only)
+        )
         manifest[delta_key] = {
             "merged_id": merged_id,
             "ranked_themes": ranked_themes,
