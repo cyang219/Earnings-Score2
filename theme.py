@@ -228,13 +228,13 @@ JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json t
 ```"""
 
 
-def build_merged_scratchpad_format(labels: list[str]) -> str:
+def build_historical_scratchpad_format(labels: list[str]) -> str:
     readthrough_lines = build_readthrough_scratchpad_format(labels)
     bullbear_lines = build_bullbear_scratchpad_format(labels)
     return readthrough_lines, bullbear_lines
 
 
-def build_merged_json_skeleton(labels: list[str], signal_only: bool = False) -> str:
+def build_historical_json_skeleton(labels: list[str], signal_only: bool = False) -> str:
     if signal_only:
         entries = [
             f"""    {{
@@ -272,7 +272,7 @@ def build_merged_json_skeleton(labels: list[str], signal_only: bool = False) -> 
     return "{\n  \"historical_analysis\": [\n" + ",\n".join(entries) + "\n  ]\n}"
 
 
-def build_merged_step4_block(signal_only: bool, description_length_rule: str) -> str:
+def build_historical_step4_block(signal_only: bool, description_length_rule: str) -> str:
     if signal_only:
         return (
             'Step 4: SIGNAL FIELDS ONLY. Output only the "signal" field (read-through) and each side\'s '
@@ -295,7 +295,7 @@ def build_merged_step4_block(signal_only: bool, description_length_rule: str) ->
     )
 
 
-def build_merged_verification_block(signal_only: bool) -> str:
+def build_historical_verification_block(signal_only: bool) -> str:
     if signal_only:
         return (
             'Before producing the JSON, verify that no track\'s signal was adjusted to agree or disagree with another '
@@ -311,16 +311,16 @@ def build_merged_verification_block(signal_only: bool) -> str:
     )
 
 
-def build_merged_system_prompt(ordered_quarters, signal_only: bool = False) -> str:
+def build_historical_system_prompt(ordered_quarters, signal_only: bool = False) -> str:
     labels = [item["label"] for item in ordered_quarters]
-    readthrough_scratchpad_format, bullbear_scratchpad_format = build_merged_scratchpad_format(labels)
+    readthrough_scratchpad_format, bullbear_scratchpad_format = build_historical_scratchpad_format(labels)
     return MERGED_PROMPT_TEMPLATE.format(
         quarter_mapping=build_readthrough_quarter_mapping(ordered_quarters),
         readthrough_scratchpad_format=readthrough_scratchpad_format,
         bullbear_scratchpad_format=bullbear_scratchpad_format,
-        step4_block=build_merged_step4_block(signal_only, READTHROUGH_DESCRIPTION_LENGTH_RULE),
-        verification_block=build_merged_verification_block(signal_only),
-        json_format=build_merged_json_skeleton(labels, signal_only),
+        step4_block=build_historical_step4_block(signal_only, READTHROUGH_DESCRIPTION_LENGTH_RULE),
+        verification_block=build_historical_verification_block(signal_only),
+        json_format=build_historical_json_skeleton(labels, signal_only),
     )
 
 
@@ -468,7 +468,7 @@ def parse_fenced_json_response(raw_text: str):
         return None, f"Failed to parse JSON response: {e}\n\nRaw response:\n{raw_text}"
 
 
-def build_merged_params(ordered_quarters, signal_only: bool = False) -> dict:
+def build_historical_params(ordered_quarters, signal_only: bool = False) -> dict:
     sections = "\n\n".join(
         f"=== {item['label']} ({item['period']}) ===\n{item['content']}"
         for item in ordered_quarters
@@ -478,7 +478,7 @@ def build_merged_params(ordered_quarters, signal_only: bool = False) -> dict:
         "max_tokens": 32000,
         "thinking": {"type": "adaptive"},
         "output_config": {"effort": READTHROUGH_EFFORT},
-        "system": build_merged_system_prompt(ordered_quarters, signal_only),
+        "system": build_historical_system_prompt(ordered_quarters, signal_only),
         "messages": [{"role": "user", "content": sections}],
     }
 
@@ -502,8 +502,8 @@ def build_themes_batch_request(custom_id: str, ordered_quarters) -> dict:
     return {"custom_id": custom_id, "params": build_themes_params(ordered_quarters)}
 
 
-def build_merged_batch_request(custom_id: str, ordered_quarters, signal_only: bool = False) -> dict:
-    return {"custom_id": custom_id, "params": build_merged_params(ordered_quarters, signal_only)}
+def build_historical_batch_request(custom_id: str, ordered_quarters, signal_only: bool = False) -> dict:
+    return {"custom_id": custom_id, "params": build_historical_params(ordered_quarters, signal_only)}
 
 
 def build_theme_delta_batch_request(
@@ -526,8 +526,8 @@ def analyze_themes(client: Anthropic, ordered_quarters):
     return parse_themes_response(raw_text)
 
 
-def analyze_merged(client: Anthropic, ordered_quarters, signal_only: bool = False):
-    raw_text = _stream_text(client, build_merged_params(ordered_quarters, signal_only))
+def analyze_historical(client: Anthropic, ordered_quarters, signal_only: bool = False):
+    raw_text = _stream_text(client, build_historical_params(ordered_quarters, signal_only))
     return parse_fenced_json_response(raw_text)
 
 
@@ -546,7 +546,7 @@ BATCH_STATE_FILENAME = "theme_batch_state.json"
 def submit_stage1_batch(client: Anthropic, ordered_quarters, signal_only: bool = False) -> str:
     requests = [
         build_themes_batch_request("themes", ordered_quarters),
-        build_merged_batch_request("merged", ordered_quarters, signal_only),
+        build_historical_batch_request("historical", ordered_quarters, signal_only),
     ]
     batch = client.messages.batches.create(requests=requests)
     return batch.id
@@ -560,21 +560,21 @@ def submit_stage2_batch(client: Anthropic, themes_result: dict, ordered_quarters
         ranked_themes = themes_result.get(later_item["period"], {}).get("themes", [])
         if not ranked_themes:
             continue
-        merged_id = f"{delta_key}__themes"
-        merged_themes = COMMON_THEME_SET + ranked_themes
+        theme_delta_id = f"{delta_key}__themes"
+        delta_themes = COMMON_THEME_SET + ranked_themes
         requests.append(
-            build_theme_delta_batch_request(merged_id, merged_themes, later_item, earlier_item, signal_only)
+            build_theme_delta_batch_request(theme_delta_id, delta_themes, later_item, earlier_item, signal_only)
         )
         manifest[delta_key] = {
-            "merged_id": merged_id,
+            "theme_delta_id": theme_delta_id,
             "ranked_themes": ranked_themes,
         }
     batch = client.messages.batches.create(requests=requests)
     return batch.id, manifest
 
 
-def split_merged_result(merged_result: dict):
-    entries = merged_result.get("historical_analysis", []) if merged_result else []
+def split_historical_result(historical_result: dict):
+    entries = historical_result.get("historical_analysis", []) if historical_result else []
     readthrough_result = {
         "historical_analysis": [
             {
@@ -595,9 +595,9 @@ def split_merged_result(merged_result: dict):
     return readthrough_result, bullbear_result
 
 
-def split_theme_delta_result(merged_result: dict, ranked_themes: list):
+def split_theme_delta_result(theme_delta_result: dict, ranked_themes: list):
     ranked_set = set(ranked_themes)
-    entries = merged_result.get("theme_analysis", []) if merged_result else []
+    entries = theme_delta_result.get("theme_analysis", []) if theme_delta_result else []
     common_result = {"theme_analysis": [e for e in entries if e["theme"] not in ranked_set]}
     ranked_result = {"theme_analysis": [e for e in entries if e["theme"] in ranked_set]}
     return common_result, ranked_result
@@ -959,15 +959,15 @@ if theme_md_files:
                         else:
                             readthrough_result = None
                             bullbear_result = None
-                            merged_text, merged_err = raw_results.get("merged", (None, "missing"))
-                            if merged_text:
-                                merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
-                                if merged_parse_err:
-                                    st.error(f"merged: {merged_parse_err}")
+                            historical_text, historical_err = raw_results.get("historical", (None, "missing"))
+                            if historical_text:
+                                historical_result, historical_parse_err = parse_fenced_json_response(historical_text)
+                                if historical_parse_err:
+                                    st.error(f"historical: {historical_parse_err}")
                                 else:
-                                    readthrough_result, bullbear_result = split_merged_result(merged_result)
+                                    readthrough_result, bullbear_result = split_historical_result(historical_result)
                             else:
-                                st.error(f"merged: {merged_err}")
+                                st.error(f"historical: {historical_err}")
 
                             with st.spinner("Submitting stage 2 batch (per-delta theme analysis)..."):
                                 stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
@@ -1010,17 +1010,17 @@ if theme_md_files:
 
                             theme_delta_by_key = {}
                             for delta_key, ids in manifest.items():
-                                merged_text, merged_err = raw_results.get(ids["merged_id"], (None, "missing"))
-                                merged_result = None
-                                if merged_text:
-                                    merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
-                                    if merged_parse_err:
-                                        st.error(f"{delta_key}: {merged_parse_err}")
+                                theme_delta_text, theme_delta_err = raw_results.get(ids["theme_delta_id"], (None, "missing"))
+                                theme_delta_result = None
+                                if theme_delta_text:
+                                    theme_delta_result, theme_delta_parse_err = parse_fenced_json_response(theme_delta_text)
+                                    if theme_delta_parse_err:
+                                        st.error(f"{delta_key}: {theme_delta_parse_err}")
                                 else:
-                                    st.error(f"{delta_key}: {merged_err}")
+                                    st.error(f"{delta_key}: {theme_delta_err}")
 
                                 common_result, ranked_result = split_theme_delta_result(
-                                    merged_result, ids["ranked_themes"]
+                                    theme_delta_result, ids["ranked_themes"]
                                 )
 
                                 theme_delta_by_key[delta_key] = {
@@ -1071,13 +1071,13 @@ if theme_md_files:
                 st.json(themes)
 
                 with st.spinner("Analyzing sector read-through and bull/bear signals..."):
-                    merged, merged_error = analyze_merged(client, parsed_quarters)
+                    historical, historical_error = analyze_historical(client, parsed_quarters)
                 readthrough_lookup = {}
                 bullbear_lookup = {}
-                if merged_error:
-                    st.error(merged_error)
+                if historical_error:
+                    st.error(historical_error)
                 else:
-                    readthrough, bullbear = split_merged_result(merged)
+                    readthrough, bullbear = split_historical_result(historical)
                     st.session_state["readthrough_analysis_result"] = readthrough
                     st.json(readthrough)
                     readthrough_lookup = build_delta_lookup(readthrough)
@@ -1093,16 +1093,16 @@ if theme_md_files:
                         st.error(f"{delta_key}: no ranked themes found for {later_item['period']}")
                         continue
 
-                    merged_themes = COMMON_THEME_SET + ranked_themes
+                    delta_themes = COMMON_THEME_SET + ranked_themes
                     with st.spinner(f"Analyzing themes for {delta_key}..."):
-                        merged_result, merged_error = analyze_theme_delta(
-                            client, merged_themes, later_item, earlier_item
+                        theme_delta_result, theme_delta_error = analyze_theme_delta(
+                            client, delta_themes, later_item, earlier_item
                         )
 
-                    if merged_error:
-                        st.error(f"{delta_key}: {merged_error}")
+                    if theme_delta_error:
+                        st.error(f"{delta_key}: {theme_delta_error}")
 
-                    common_result, ranked_result = split_theme_delta_result(merged_result, ranked_themes)
+                    common_result, ranked_result = split_theme_delta_result(theme_delta_result, ranked_themes)
 
                     theme_delta_by_key[delta_key] = {
                         "common": common_result,
