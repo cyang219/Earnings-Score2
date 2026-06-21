@@ -241,10 +241,10 @@ def build_historical_json_skeleton(labels: list[str], signal_only: bool = False)
       "period": "{later}_vs_{earlier}",
       "signal": "↑: or ↓: or →:",
       "bull": {{
-        "topic": "↑: or ↓: or →:"
+        "signal": "↑: or ↓: or →:"
       }},
       "bear": {{
-        "topic": "↑: or ↓: or →:"
+        "signal": "↑: or ↓: or →:"
       }}
     }}"""
             for later, earlier in build_delta_pairs(labels)
@@ -257,12 +257,12 @@ def build_historical_json_skeleton(labels: list[str], signal_only: bool = False)
       "read_through": "one-sentence macro/industry read-through",
       "rationale": "one-sentence QoQ contrast explaining the read-through signal direction",
       "bull": {{
-        "topic": "↑: or ↓: or →:",
+        "signal": "↑: or ↓: or →:",
         "expectation": "one-sentence bullish forward-looking expectation",
         "context": "one-sentence QoQ context explaining the bull signal direction"
       }},
       "bear": {{
-        "topic": "↑: or ↓: or →:",
+        "signal": "↑: or ↓: or →:",
         "expectation": "one-sentence bearish forward-looking expectation",
         "context": "one-sentence QoQ context explaining the bear signal direction"
       }}
@@ -275,8 +275,8 @@ def build_historical_json_skeleton(labels: list[str], signal_only: bool = False)
 def build_historical_step4_block(signal_only: bool, description_length_rule: str) -> str:
     if signal_only:
         return (
-            'Step 4: SIGNAL FIELDS ONLY. Output only the "signal" field (read-through) and each side\'s '
-            '"topic" field (bull, bear), each derived directly from Step 3. Do not produce "read_through", '
+            'Step 4: SIGNAL FIELDS ONLY. Output only the "signal" field for read-through and for each side '
+            '(bull, bear), each derived directly from Step 3. Do not produce "read_through", '
             '"rationale", "expectation", or "context" fields.'
         )
     return (
@@ -305,7 +305,7 @@ def build_historical_verification_block(signal_only: bool) -> str:
     return (
         'Before producing the JSON, verify for each delta that: (a) the read-through rationale\'s described direction '
         'matches its signal arrow and its own scratchpad Signal; (b) each side\'s context\'s described direction matches '
-        'its topic arrow and its own scratchpad Signal; (c) no track\'s signal was adjusted to agree or disagree with '
+        'its signal arrow and its own scratchpad Signal; (c) no track\'s signal was adjusted to agree or disagree with '
         'another track\'s signal for the same delta (see ANALYSIS INDEPENDENCE) — if any check fails, the relevant '
         'scratchpad Signal governs; revise the field to match.'
     )
@@ -716,10 +716,10 @@ def write_db_row(
 
     if bullbear_entry is not None:
         worksheet.cell(row=row, column=DB_BULL_COL).value = format_signal_cell(
-            bullbear_entry["bull"]["topic"], bullbear_entry["bull"]["expectation"], bullbear_entry["bull"]["context"]
+            bullbear_entry["bull"]["signal"], bullbear_entry["bull"]["expectation"], bullbear_entry["bull"]["context"]
         )
         worksheet.cell(row=row, column=DB_BEAR_COL).value = format_signal_cell(
-            bullbear_entry["bear"]["topic"], bullbear_entry["bear"]["expectation"], bullbear_entry["bear"]["context"]
+            bullbear_entry["bear"]["signal"], bullbear_entry["bear"]["expectation"], bullbear_entry["bear"]["context"]
         )
 
     if theme_common_result is not None:
