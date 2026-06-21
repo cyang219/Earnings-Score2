@@ -111,14 +111,9 @@ Step 3: SIGNAL FIELD. Derive the "signal" field mechanically from the scratchpad
 - Improved -> "↑:"   |   Worsened -> "↓:"   |   Stable -> "→:"
 If the field and the scratchpad Signal would ever disagree, the scratchpad Signal is authoritative.
 
-Step 4: MESSAGE/TONE AND RATIONALE FIELDS. For each theme, produce three fields per side (mgmt and analyst): "signal" (the arrow from Step 3), then for mgmt "message" and for analyst "tone", and "rationale" for both:
-- "message" (mgmt) / "tone" (analyst): one sentence stating the later-quarter management message or analyst tone on that theme.
-- "rationale": one sentence (a) citing one specific QoQ change on that theme and (b) explaining why it improved, worsened, or stayed stable, matching that side's signal direction.
-- {description_length_rule} across the "message"/"tone" field and its "rationale" field combined.
-- STYLE: abridged, telegraphic style with abbreviations.
-- Omit the final period "." at the end of every field.
+{step4_block}
 
-Before producing the JSON, verify that (a) every theme in THEME LIST is present, (b) each theme's mgmt and analyst signals comply with THEME INDEPENDENCE, and (c) each rationale's described direction matches its signal arrow and the scratchpad Signal. If any disagree, the scratchpad Signal governs; revise to match.
+{verification_block}
 
 JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per theme in THEME LIST order. Replace the theme placeholders with the exact theme names from THEME LIST. Do not output any text between </scratchpad> and the JSON block, or after the JSON block. Escape any double quotes inside field values.
 
@@ -222,11 +217,9 @@ Step 3: SIGNAL/TOPIC FIELDS. Derive each track's signal field mechanically from 
    - Strengthened -> "↑:"   |   Weakened -> "↓:"   |   Stable -> "→:"
 If a field and its own scratchpad Signal would ever disagree, the scratchpad Signal is authoritative.
 
-Step 4: DESCRIPTION FIELDS.
-   - READ-THROUGH "read_through" / "rationale": each exactly one sentence (external business factors only). "read_through" states the inferred macro/industry read-through for the later quarter. "rationale" (a) cites one specific QoQ contrast between the two quarters, and (b) explains why that contrast caused the read-through to strengthen, weaken, or stay stable, matching the delta's signal direction. {description_length_rule} across the two fields combined. Omit the final period "." at the end of both fields.
-   - BULL/BEAR "expectation" / "context" (per side): "expectation" is one sentence stating the inferred forward-looking 6–9 month expectation for the later quarter on that side. "context" is one sentence (a) citing one specific QoQ change in that side's forward case and (b) explaining why that change caused the expectation to strengthen, weaken, or stay stable, matching that side's signal direction. {description_length_rule} across the "expectation" and "context" fields combined. STYLE: abridged, telegraphic style with abbreviations. Omit the final period "." at the end of both fields.
+{step4_block}
 
-Before producing the JSON, verify for each delta that: (a) the read-through rationale's described direction matches its signal arrow and its own scratchpad Signal; (b) each side's context's described direction matches its topic arrow and its own scratchpad Signal; (c) no track's signal was adjusted to agree or disagree with another track's signal for the same delta (see ANALYSIS INDEPENDENCE) — if any check fails, the relevant scratchpad Signal governs; revise the field to match.
+{verification_block}
 
 JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per delta in the same order as the scratchpad. No text before or after the JSON block. Escape any double quotes inside field values.
 
@@ -279,7 +272,7 @@ def build_merged_json_skeleton(labels: list[str], signal_only: bool = False) -> 
     return "{\n  \"historical_analysis\": [\n" + ",\n".join(entries) + "\n  ]\n}"
 
 
-def build_merged_step4_block(signal_only: bool) -> str:
+def build_merged_step4_block(signal_only: bool, description_length_rule: str) -> str:
     if signal_only:
         return (
             'Step 4: SIGNAL FIELDS ONLY. Output only the "signal" field (read-through) and each side\'s '
@@ -291,12 +284,12 @@ def build_merged_step4_block(signal_only: bool) -> str:
         '   - READ-THROUGH "read_through" / "rationale": each exactly one sentence (external business factors only). '
         '"read_through" states the inferred macro/industry read-through for the later quarter. "rationale" (a) cites '
         'one specific QoQ contrast between the two quarters, and (b) explains why that contrast caused the read-through '
-        'to strengthen, weaken, or stay stable, matching the delta\'s signal direction. {description_length_rule} across '
+        f'to strengthen, weaken, or stay stable, matching the delta\'s signal direction. {description_length_rule} across '
         'the two fields combined. Omit the final period "." at the end of both fields.\n'
         '   - BULL/BEAR "expectation" / "context" (per side): "expectation" is one sentence stating the inferred '
         'forward-looking 6–9 month expectation for the later quarter on that side. "context" is one sentence (a) citing '
         'one specific QoQ change in that side\'s forward case and (b) explaining why that change caused the expectation '
-        'to strengthen, weaken, or stay stable, matching that side\'s signal direction. {description_length_rule} across '
+        f'to strengthen, weaken, or stay stable, matching that side\'s signal direction. {description_length_rule} across '
         'the "expectation" and "context" fields combined. STYLE: abridged, telegraphic style with abbreviations. Omit '
         'the final period "." at the end of both fields.'
     )
@@ -318,15 +311,16 @@ def build_merged_verification_block(signal_only: bool) -> str:
     )
 
 
-def build_merged_system_prompt(ordered_quarters) -> str:
+def build_merged_system_prompt(ordered_quarters, signal_only: bool = False) -> str:
     labels = [item["label"] for item in ordered_quarters]
     readthrough_scratchpad_format, bullbear_scratchpad_format = build_merged_scratchpad_format(labels)
     return MERGED_PROMPT_TEMPLATE.format(
         quarter_mapping=build_readthrough_quarter_mapping(ordered_quarters),
         readthrough_scratchpad_format=readthrough_scratchpad_format,
         bullbear_scratchpad_format=bullbear_scratchpad_format,
-        description_length_rule=READTHROUGH_DESCRIPTION_LENGTH_RULE,
-        json_format=build_merged_json_skeleton(labels),
+        step4_block=build_merged_step4_block(signal_only, READTHROUGH_DESCRIPTION_LENGTH_RULE),
+        verification_block=build_merged_verification_block(signal_only),
+        json_format=build_merged_json_skeleton(labels, signal_only),
     )
 
 
@@ -383,7 +377,7 @@ def build_theme_delta_json_skeleton(themes: list[str], signal_only: bool = False
     return "{\n  \"theme_analysis\": [\n" + ",\n".join(entries) + "\n  ]\n}"
 
 
-def build_theme_delta_step4_block(signal_only: bool) -> str:
+def build_theme_delta_step4_block(signal_only: bool, description_length_rule: str) -> str:
     if signal_only:
         return (
             'Step 4: SIGNAL FIELDS ONLY. For each theme, output only the "signal" field per side (mgmt and analyst), '
@@ -396,7 +390,7 @@ def build_theme_delta_step4_block(signal_only: bool) -> str:
         'tone on that theme.\n'
         '- "rationale": one sentence (a) citing one specific QoQ change on that theme and (b) explaining why it '
         'improved, worsened, or stayed stable, matching that side\'s signal direction.\n'
-        '- {description_length_rule} across the "message"/"tone" field and its "rationale" field combined.\n'
+        f'- {description_length_rule} across the "message"/"tone" field and its "rationale" field combined.\n'
         '- STYLE: abridged, telegraphic style with abbreviations.\n'
         '- Omit the final period "." at the end of every field.'
     )
@@ -416,13 +410,14 @@ def build_theme_delta_verification_block(signal_only: bool) -> str:
     )
 
 
-def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item) -> str:
+def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item, signal_only: bool = False) -> str:
     return THEME_DELTA_PROMPT_TEMPLATE.format(
         theme_list=build_theme_list(themes),
         quarter_delta=build_quarter_delta_mapping(later_item, earlier_item),
         scratchpad_format=build_theme_delta_scratchpad_format(themes),
-        description_length_rule=READTHROUGH_DESCRIPTION_LENGTH_RULE,
-        json_format=build_theme_delta_json_skeleton(themes),
+        step4_block=build_theme_delta_step4_block(signal_only, READTHROUGH_DESCRIPTION_LENGTH_RULE),
+        verification_block=build_theme_delta_verification_block(signal_only),
+        json_format=build_theme_delta_json_skeleton(themes, signal_only),
     )
 
 
