@@ -936,6 +936,7 @@ if theme_md_files:
                     "theme_batch_readthrough_result",
                     "theme_batch_bullbear_result",
                     "theme_batch_stage2_manifest",
+                    "theme_batch_stage1_issues",
                 ):
                     st.session_state.pop(key, None)
                 save_theme_batch_state(
@@ -951,6 +952,11 @@ if theme_md_files:
                 batch_id = st.session_state.get("theme_batch_id")
                 st.write(f"Batch ID: `{batch_id}` (stage: {stage})")
 
+                stage1_issues = st.session_state.get("theme_batch_stage1_issues")
+                if stage1_issues:
+                    for issue in stage1_issues:
+                        st.warning(issue)
+
                 if stage == "stage1" and st.button("Check batch status", disabled=not api_key, key="check_stage1"):
                     client = Anthropic(api_key=api_key)
                     batch = client.messages.batches.retrieve(batch_id)
@@ -964,17 +970,19 @@ if theme_md_files:
                         with st.spinner("Fetching stage 1 results..."):
                             raw_results = fetch_raw_batch_results(client, batch_id)
 
+                        stage1_issues = []
                         themes_text, themes_err = raw_results.get("themes", (None, "missing"))
                         themes_result = None
                         if themes_text:
                             themes_result, parse_err = parse_themes_response(themes_text)
                             if parse_err:
-                                st.error(f"themes: {parse_err}")
+                                stage1_issues.append(f"themes: {parse_err}")
                         else:
-                            st.error(f"themes: {themes_err}")
+                            stage1_issues.append(f"themes: {themes_err}")
 
                         if themes_result is None:
-                            st.error("Stage 1 failed to produce themes - cannot submit stage 2.")
+                            stage1_issues.append("Stage 1 failed to produce themes - cannot submit stage 2.")
+                            st.session_state["theme_batch_stage1_issues"] = stage1_issues
                         else:
                             readthrough_result = None
                             bullbear_result = None
@@ -982,11 +990,13 @@ if theme_md_files:
                             if historical_text:
                                 historical_result, historical_parse_err = parse_fenced_json_response(historical_text)
                                 if historical_parse_err:
-                                    st.error(f"historical: {historical_parse_err}")
+                                    stage1_issues.append(f"historical: {historical_parse_err}")
                                 else:
                                     readthrough_result, bullbear_result = split_historical_result(historical_result)
                             else:
-                                st.error(f"historical: {historical_err}")
+                                stage1_issues.append(f"historical: {historical_err}")
+
+                            st.session_state["theme_batch_stage1_issues"] = stage1_issues
 
                             batch_signal_only = st.session_state.get("theme_batch_signal_only", False)
                             with st.spinner("Submitting stage 2 batch (per-delta theme analysis)..."):
