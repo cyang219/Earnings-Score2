@@ -62,6 +62,7 @@ Rules:
 - Each theme must be very high-level and neutral (e.g. "Proprietary Silicon", not "Proprietary Silicon Development Timing").
 - Each theme in a delta quarter must be over 80% different semantically compared to the others.
 - Each theme name must be 2-3 words.
+- Theme names must use generic, role-based descriptors — never specific product names, model numbers, or company branding. Describe the category of thing, not the specific instance (e.g. "New GPU Launch" not "MI350 Launch", "Next-Gen CPU Ramp" not "Turin Ramp", "Export Controls" not "MI308 China Ban", "Strategic Partnership" not "OpenAI Deal").
 
 Output format - return ONLY valid JSON, no commentary, no markdown code fences, no preamble. Structure:
 {json_skeleton}
