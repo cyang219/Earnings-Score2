@@ -347,7 +347,7 @@ def build_themes_params(ordered_quarters) -> dict:
     return {
         "model": MODEL,
         "max_tokens": 32000,
-        "thinking": {"type": "adaptive"},
+        "thinking": {"type": "enabled", "budget_tokens": 10000},
         "output_config": {"effort": THEMES_EFFORT},
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_content}],
@@ -380,7 +380,7 @@ def build_merged_params(ordered_quarters) -> dict:
     return {
         "model": READTHROUGH_MODEL,
         "max_tokens": 32000,
-        "thinking": {"type": "adaptive"},
+        "thinking": {"type": "enabled", "budget_tokens": 10000},
         "output_config": {"effort": READTHROUGH_EFFORT},
         "system": build_merged_system_prompt(ordered_quarters),
         "messages": [{"role": "user", "content": sections}],
@@ -395,7 +395,7 @@ def build_theme_delta_params(themes: list[str], later_item, earlier_item) -> dic
     return {
         "model": THEME_DELTA_MODEL,
         "max_tokens": 32000,
-        "thinking": {"type": "adaptive"},
+        "thinking": {"type": "enabled", "budget_tokens": 10000},
         "output_config": {"effort": THEME_DELTA_EFFORT},
         "system": build_theme_delta_system_prompt(themes, later_item, earlier_item),
         "messages": [{"role": "user", "content": sections}],
