@@ -1,0 +1,117 @@
+**Sanjay Mehrotra — Chairman, President & CEO**
+
+- FQ4 revenue, gross margin, EPS all above high end of updated guidance; quarterly record revenue
+- FY2025 revenue grew ~50% to record $37.4B; gross margins expanded 17pp to 41%
+- Combined HBM + high-capacity DIMMs + LP server DRAM revenue reached $10B — >5x increase YoY
+- Data center SSD business reached record revenue and market share in FY2025
+- AI driving 30–40% productivity uplift in select GenAI use cases (e.g., code generation) internally
+- In design simulation: AI accelerating silicon-to-systems design cycle via advanced modeling, reduced iterations
+- In manufacturing: 5x increase in wafer images analyzed past year; doubled useful data/telemetry from fab tools; improving yield performance
+- 1-gamma DRAM node reached mature yields in record time — 50% faster than prior generation; first in industry to ship 1-gamma DRAM
+- Achieved first revenue from major hyperscale customer on 1-gamma products for server DRAM in FQ4
+- G9 NAND production ramp progressing; ramped TLC and QLC; G9 QLC qualified for enterprise storage
+- FQ4: received CHIPS grant disbursement following key construction milestone for new Idaho high-volume fab; first wafer output expected 2H CY2027
+- Began design work for second Idaho fab — additional capacity beyond 2028
+- New York: completed initial phases of environmental impact study; working with state/federal authorities toward ground preparation
+- FQ4: installed first EUV tool at Japan fab for 1-gamma capability; installation time was record for all EUV tools globally
+- Singapore HBM assembly and test facility on track to contribute to HBM supply beginning CY2027
+- CY2025 total server unit growth now expected ~10%, up from prior mid-single-digit % outlook
+- CY2025 traditional server growth outlook strengthened from flat to mid-single-digit % growth
+- Growth partly attributed to AI agents driving traditional server workloads; continued enterprise demand also contributing
+- FY2025 data center revenue reached record 56% of total company revenue; gross margins 52%
+- FQ4 HBM revenue grew to ~$2B — annualized run rate ~$8B; driven by HBM3E ramp
+- HBM share on track to align with overall DRAM market share in CQ3 — target met
+- HBM4 12-high on track for customer platform ramps; shipped customer samples with >2.8 TB/s bandwidth and >11 Gb/s pin speeds
+- Micron HBM4 outperforms all competing HBM4 products — industry-leading performance, best-in-class power efficiency
+- Key HBM4 differentiators: 1-beta DRAM, power-efficient design, in-house advanced CMOS base die, advanced packaging
+- HBM4E: will offer standard + customized base logic die options; partnering with TSMC for HBM4E base logic die manufacturing
+- HBM4E customized base logic die expected to deliver higher gross margins than standard HBM4E
+- HBM customer base expanded to six customers
+- Pricing agreements in place with almost all customers for vast majority of HBM3E supply in CY2026
+- In active discussions with customers on HBM4 specs and volumes; expect to conclude agreements selling out remaining CY2026 HBM supply in coming months
+- LPDDR5 for server: >50% sequential growth in FQ4; record revenue; Micron sole supplier of LPDRAM in data center since NVIDIA GB-product launch
+- GDDR7 products designed for >40 Gb/s pin speeds with best-in-class power efficiency for future AI systems
+- Data center NAND: AI inference (KV cache tiering, vector DB search/indexing) driving performance storage demand; AI server growth driving high-capacity SSD demand
+- Industry-first G9 NAND data center products including first-to-market PCIe Gen6 SSDs
+- Near-term: HDD supply shortages expected to improve NAND demand, healthier supply-demand environment
+- PC unit shipments now expected mid-single-digit % growth in CY2025, up from prior low-single-digit % outlook
+- FQ4: achieved first OEM customer qualification of 16Gb 1-gamma-based D5; commenced volume shipments
+- NAND: first G9 NAND SSDs qualified (performance and mainstream) with OEM customers; record client SSD revenue in FQ4 and FY2025
+- Smartphone unit shipments unchanged — low-single-digit % range CY2025
+- One-third of flagship smartphones shipped CQ2 contained ≥12GB DRAM; mix expected to increase given recent Apple, Samsung and other OEM launches
+- FQ4: ceased future mobile-managed NAND product development — focusing resources on higher-ROI opportunities; will continue supporting existing mobile-managed NAND products
+- FQ4: achieved OEM qualification of first 10.7 Gb/s 1-beta second-gen LP5X products at 16GB and 24GB capacities
+- Automotive/industrial demand strengthened throughout FQ4, exceeded initial forecast
+- Improved auto/industrial profitability: stronger pricing, increased mix of advanced nodes (D5, LP5)
+- Supply constraints continue in D4 and LP4; investments announced at Virginia facility to support long-life-cycle customers
+- Customer inventory levels healthy overall across end markets
+- CY2025 industry DRAM bit demand growth expected high-teens %, up from prior outlook
+- CY2025 industry NAND bit demand growth now expected low-to-mid-teens %, up from prior outlook
+- Micron CY2025 bit supply growth to be below industry bit demand growth for non-HBM DRAM and NAND
+- CY2026: anticipates further DRAM supply tightness; continued NAND market conditions strengthening
+- Supply constraints driven by: low supplier inventories, constrained node migration (extended D4/LP4 end-of-life support), longer lead times, higher costs for new wafer capacity
+- Medium-term industry bit demand growth: mid-teens CAGR for both DRAM and NAND
+- FY2025 CapEx: $13.8B; FY2026 CapEx expected higher than FY2025; driven by DRAM front-end equipment and fab construction
+- 1-gamma node migration to provide majority of DRAM supply growth in CY2026; 1-beta capacity to support HBM growth in 2026
+- HBM TAM expected to reach $100B by 2030; HBM bit CAGR to outgrow overall DRAM CAGR
+- HBM bits in 2026 expected to outgrow overall DRAM bits
+- HBM4 first production shipments expected CQ2 2026; production ramps 2H 2026 in line with customer demand
+- HBM share in 2026 expected to grow vs. 2025
+- Not commenting on HBM3E pricing for 2026
+- Healthy demand-supply environment expected CY2026 for overall DRAM; bodes well for HBM and non-HBM profitability
+- HBM4 uses Micron's own internal base die (in-house CMOS); HBM4E (2027 timeframe) will use TSMC-manufactured base die with both standard and customized options
+- HBM4 achievement enabled by: innovative design, memory architecture, advanced CMOS in DRAM die, advanced CMOS in base die — no qual delays noted
+- 1-gamma ramp to support non-HBM demand; 1-beta capacity allocated to HBM
+- Fungibility at front end (1-beta wafers shared between HBM and other products) provides mix management flexibility
+- Assembly and test investments over prior quarters provide adequate HBM capacity
+- Will manage HBM vs. non-HBM mix with ROI and investment discipline in mind
+- HBM3E: pricing agreements and volumes fixed with most customers for CY2026
+- Expect to conclude HBM4 and full CY2026 HBM supply agreements in coming months
+- HBM4E customization expected to deliver higher gross margins; standard HBM4E also offered
+
+---
+
+**Mark Joseph Murphy — CFO & EVP**
+
+- FY2025 record revenue $37.4B, up 49% YoY; gross margins 41% (+17pp vs. FY2024); EPS $8.29 (+538% YoY)
+- FQ4 total revenue $11.3B — up 22% sequentially, up 46% YoY; quarterly record
+- FQ4 DRAM revenue record $9B — up 69% YoY; 79% of total revenue; up 27% sequentially
+- DRAM bit shipments increased low-teens %; prices increased low-double-digit %; driven by tight supply, pricing execution, favorable mix
+- FY2025 DRAM revenues record $28.6B, up 62% YoY; FY2025 DRAM all-in costs (incl. HBM) down low-single-digit pp
+- FQ4 NAND revenue $2.3B — down 5% YoY; 20% of total revenue; up 5% sequentially
+- NAND bit shipments declined mid-single-digit %; prices increased high-single-digit % (favorable mix)
+- FY2025 NAND revenues record $8.5B, up 18% YoY; FY2025 NAND all-in cost reductions ~low-teens %
+- New segment disclosures: Cloud Memory BU (CMBU) + Core Data Center BU (CDBU) = totality of data center business
+- CMBU revenue $4.5B — 40% of total revenue; up 34% sequentially; HBM hit new quarterly record; gross margins 59% (+120bp sequentially)
+- CDBU revenue $1.6B — 14% of total revenue; up 3% sequentially; gross margins 41% (+400bp sequentially, driven by higher pricing, favorable mix)
+- MCBU revenue $3.8B — 33% of total revenue; up 16% sequentially; gross margins 36% (+12pp sequentially, driven by higher pricing, favorable mix)
+- AEBU revenue $1.4B — 13% of total revenue; up 27% sequentially; gross margins 31% (+540bp sequentially, driven by higher pricing)
+- Consolidated FQ4 gross margin 45.7% — up 670bp sequentially; driven by favorable mix, better DRAM pricing, cost reductions
+- FQ4 operating expenses $1.2B — up $81M QoQ; sequential increase driven primarily by higher R&D
+- FQ4 operating income $4B; operating margin 35% — up 820bp sequentially, up 12pp YoY
+- FQ4 taxes $471M; effective tax rate 12% — lower than guidance due to discrete item favorability
+- Non-GAAP diluted EPS FQ4: $3.03 — up 59% sequentially, up 157% YoY
+- FQ4 operating cash flows $5.7B; CapEx $4.9B; free cash flow $803M
+- FY2025 free cash flow $3.7B — 10% of revenue
+- Ending inventory FQ4: $8.4B / 124 days — down $372M sequentially, down 15 days; DRAM inventory below target; NAND improved sequentially
+- Balance sheet: $11.9B cash and investments; $15.4B total liquidity (incl. untapped credit facility)
+- FQ4: reduced debt $900M ($700M term loan paydown + ~$200M senior notes repurchase)
+- Closed quarter with $14.6B debt; weighted average debt maturity 2033
+- FQ1 guidance: price, cost, and mix all expected to contribute to strengthening gross margins
+- FQ1 operating expenses projected ~$1.34B — sequential increase driven by R&D for data center product innovation
+- FY2026 is 53-week fiscal year vs. FY2025 52-week; FQ4 2026 OpEx will reflect extra work week
+- FQ1 and FY2026 expected tax rate ~16.5%
+- FQ1 CapEx expected ~$4.5B; serves as reasonable quarterly baseline for FY2026
+- Free cash flow expected to strengthen in FQ1; FY2026 annual free cash flow projected significantly higher YoY
+- Potential new tariff impacts not included in guidance
+- **FQ1 Non-GAAP guidance:** Revenue $12.5B ±$300M (record); Gross margin 51.5% ±100bp; OpEx ~$1.34B ±$20M; EPS $3.75 ±$0.15 (record), based on ~1.15B shares
+- FQ1 revenue growth: heavier DRAM mix than NAND; guiding +580bp gross margin sequentially; split across mix, pricing, cost reductions
+- Constructive pricing environment: DRAM supply tight, NAND improving substantially
+- Supply-demand factors described as structural and durable
+- DRAM inventories below target; expect DRAM DIO to remain very tight through year
+- NAND DIO expected to decrease as discipline maintained
+- FY2026 CapEx: vast majority for DRAM (construction, facilities, node transition tools, new greenfield installs)
+- FY2026 CapEx framework ~$18B net; FY2025 gross CapEx $15.8B less $2B government incentives (US, Singapore, Japan) = $13.8B net
+- Gross vs. net CapEx breakdown for FY2026 not disclosed
+- Gross margins expected to improve sequentially in FQ2 2026
+- Both HBM and non-HBM margins expected healthy in 2026
