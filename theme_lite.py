@@ -1,7 +1,7 @@
 import io
 import json
 import re
-from pathlib import Path
+import time
 
 import openpyxl
 import streamlit as st
@@ -259,9 +259,6 @@ def analyze_theme_delta(client: Anthropic, themes: list[str], later_item, earlie
 # BATCH PROCESSING
 # ============================================================
 
-BATCH_STATE_FILENAME = "theme_lite_batch_state.json"
-
-
 def build_themes_batch_request(custom_id: str, ordered_quarters, existing_themes: list[str] = None) -> dict:
     return {"custom_id": custom_id, "params": build_themes_params(ordered_quarters, existing_themes)}
 
@@ -304,27 +301,6 @@ def fetch_raw_batch_results(client: Anthropic, batch_id: str) -> dict:
             error_str = str(error_message) if error_message is not None else entry.result.type
             results[entry.custom_id] = (None, error_str, None)
     return results
-
-
-def save_batch_state(folder: str, state: dict):
-    path = Path(folder) / BATCH_STATE_FILENAME
-    path.write_text(json.dumps(state))
-
-
-def load_batch_state(folder: str):
-    path = Path(folder) / BATCH_STATE_FILENAME
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def clear_batch_state(folder: str):
-    path = Path(folder) / BATCH_STATE_FILENAME
-    if path.exists():
-        path.unlink()
 
 
 # ============================================================
@@ -520,153 +496,106 @@ if theme_md_files:
         existing_themes = get_existing_variable_themes(worksheet) if rows_ready else []
 
         use_batch = st.checkbox(
-            "Use batch processing (cheaper, slower - two async stages)",
+            "Use batch processing (cheaper, ~50% cost)",
             help="Submits as Batches API jobs at ~50% lower API cost. "
-            "Stage 1 identifies variable themes; stage 2 analyzes each delta once themes are known. "
-            "Click 'Check batch status' to advance.",
+            "Runs automatically: stage 1 identifies themes, stage 2 analyzes each delta. "
+            "Keep this tab open until the download button appears.",
         )
 
         if use_batch:
-            state_folder = st.text_input(
-                "Folder to save batch tracking info",
-                value=st.session_state.get("lite_batch_state_folder", ""),
-                placeholder=r"e.g. C:\Users\charles.yang\ES Updater",
-                help="A small file is saved here with the batch ID so you can check on "
-                "progress later, even after closing or restarting this app.",
-            )
-            folder_valid = bool(state_folder) and Path(state_folder).is_dir()
-            if state_folder and not folder_valid:
-                st.error("That folder doesn't exist.")
-
-            if folder_valid and "lite_batch_stage" not in st.session_state:
-                persisted = load_batch_state(state_folder)
-                if persisted:
-                    st.session_state["lite_batch_state_folder"] = state_folder
-                    st.session_state["lite_batch_stage"] = persisted["stage"]
-                    st.session_state["lite_batch_id"] = persisted["batch_id"]
-                    st.session_state["lite_batch_themes_result"] = persisted.get("themes_result")
-                    st.session_state["lite_batch_stage2_manifest"] = persisted.get("stage2_manifest")
-
-            if st.button("Submit batch", disabled=not (api_key and rows_ready and folder_valid)):
+            if st.button("Run batch", disabled=not (api_key and rows_ready)):
                 client = Anthropic(api_key=api_key)
-                with st.spinner("Submitting stage 1 batch (theme identification)..."):
-                    batch_id = submit_stage1_batch(client, parsed_quarters, existing_themes)
-                st.session_state["lite_batch_state_folder"] = state_folder
-                st.session_state["lite_batch_stage"] = "stage1"
-                st.session_state["lite_batch_id"] = batch_id
-                for key in ("lite_batch_themes_result", "lite_batch_stage2_manifest"):
-                    st.session_state.pop(key, None)
-                save_batch_state(state_folder, {"stage": "stage1", "batch_id": batch_id})
+                status = st.empty()
+
+                status.info("Submitting stage 1 batch (theme identification)...")
+                batch_id = submit_stage1_batch(client, parsed_quarters, existing_themes)
+
+                while True:
+                    batch = client.messages.batches.retrieve(batch_id)
+                    if batch.processing_status == "ended":
+                        break
+                    counts = batch.request_counts
+                    status.info(
+                        f"Stage 1 running — processing: {counts.processing}, "
+                        f"succeeded: {counts.succeeded}, errored: {counts.errored}. Checking again in 30s..."
+                    )
+                    time.sleep(30)
+
+                status.info("Fetching stage 1 results...")
+                raw_results = fetch_raw_batch_results(client, batch_id)
+
+                themes_text, themes_err, _ = raw_results.get("themes", (None, "missing", None))
+                themes_result = None
+                if themes_text:
+                    themes_result, parse_err = parse_themes_response(themes_text)
+                    if parse_err:
+                        st.error(f"themes: {parse_err}")
+                        with st.expander("themes raw response"):
+                            st.text(themes_text)
+                else:
+                    st.error(f"themes batch error: {themes_err}")
+
+                if themes_result is not None:
+                    st.json(themes_result)
+
+                    status.info("Submitting stage 2 batch (per-delta theme analysis)...")
+                    stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
+
+                    while True:
+                        batch = client.messages.batches.retrieve(stage2_id)
+                        if batch.processing_status == "ended":
+                            break
+                        counts = batch.request_counts
+                        status.info(
+                            f"Stage 2 running — processing: {counts.processing}, "
+                            f"succeeded: {counts.succeeded}, errored: {counts.errored}. Checking again in 30s..."
+                        )
+                        time.sleep(30)
+
+                    status.info("Fetching stage 2 results and writing workbook...")
+                    raw_results = fetch_raw_batch_results(client, stage2_id)
+
+                    theme_delta_by_key = {}
+                    for delta_key, ids in manifest.items():
+                        theme_text, theme_err, theme_blocks = raw_results.get(ids["theme_id"], (None, "missing", None))
+                        if theme_text is not None:
+                            if not theme_text:
+                                st.error(f"{delta_key}: batch succeeded but response contained no text (blocks: {theme_blocks})")
+                            else:
+                                theme_result, parse_err = parse_fenced_json_response(theme_text)
+                                if parse_err:
+                                    st.error(f"{delta_key}: JSON parse failed — {parse_err}")
+                                    with st.expander(f"{delta_key} raw response"):
+                                        st.text(theme_text)
+                                else:
+                                    theme_delta_by_key[delta_key] = {
+                                        "result": theme_result,
+                                        "ranked_themes": ids["ranked_themes"],
+                                    }
+                        else:
+                            st.error(f"{delta_key} batch error: {theme_err}")
+
+                    write_all_theme_results(
+                        worksheet, parsed_quarters, period_rows, themes_result,
+                        {k: v["result"] for k, v in theme_delta_by_key.items()},
+                    )
+
+                    st.json({k: v["result"] for k, v in theme_delta_by_key.items()})
+
+                    output_buffer = io.BytesIO()
+                    workbook.save(output_buffer)
+                    status.success("Batch analysis complete.")
+                    st.download_button(
+                        label=f"Download updated {db_file.name}",
+                        data=output_buffer.getvalue(),
+                        file_name=db_file.name,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="batch_dl",
+                    )
+                else:
+                    status.error("Stage 1 failed to produce themes — cannot continue.")
             elif not api_key:
                 st.info("Enter your Anthropic API key in the sidebar to begin.")
-            elif not folder_valid:
-                st.info("Enter a valid folder to save batch tracking info.")
-
-            if st.session_state.get("lite_batch_stage"):
-                stage = st.session_state["lite_batch_stage"]
-                batch_id = st.session_state.get("lite_batch_id")
-                st.write(f"Batch ID: `{batch_id}` (stage: {stage})")
-
-                if stage == "stage1" and st.button("Check batch status", disabled=not api_key, key="check_stage1"):
-                    client = Anthropic(api_key=api_key)
-                    batch = client.messages.batches.retrieve(batch_id)
-                    if batch.processing_status != "ended":
-                        counts = batch.request_counts
-                        st.info(
-                            f"Status: {batch.processing_status} - processing: {counts.processing}, "
-                            f"succeeded: {counts.succeeded}, errored: {counts.errored}"
-                        )
-                    else:
-                        with st.spinner("Fetching stage 1 results..."):
-                            raw_results = fetch_raw_batch_results(client, batch_id)
-
-                        themes_text, themes_err, themes_blocks = raw_results.get("themes", (None, "missing", None))
-                        themes_result = None
-                        if themes_text:
-                            themes_result, parse_err = parse_themes_response(themes_text)
-                            if parse_err:
-                                st.error(f"themes: {parse_err}")
-                                with st.expander("themes raw response"):
-                                    st.text(themes_text)
-                        else:
-                            st.error(f"themes batch error: {themes_err}")
-
-                        if themes_result is None:
-                            st.error("Stage 1 failed to produce themes — cannot submit stage 2.")
-                        else:
-                            st.json(themes_result)
-                            with st.spinner("Submitting stage 2 batch (per-delta theme analysis)..."):
-                                stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
-                            st.session_state["lite_batch_stage"] = "stage2"
-                            st.session_state["lite_batch_id"] = stage2_id
-                            st.session_state["lite_batch_themes_result"] = themes_result
-                            st.session_state["lite_batch_stage2_manifest"] = manifest
-                            save_batch_state(state_folder, {
-                                "stage": "stage2",
-                                "batch_id": stage2_id,
-                                "themes_result": themes_result,
-                                "stage2_manifest": manifest,
-                            })
-                            st.success("Stage 1 complete. Stage 2 batch submitted — check status again once ready.")
-                            st.rerun()
-
-                elif stage == "stage2" and st.button("Check batch status", disabled=not api_key, key="check_stage2"):
-                    client = Anthropic(api_key=api_key)
-                    batch = client.messages.batches.retrieve(batch_id)
-                    if batch.processing_status != "ended":
-                        counts = batch.request_counts
-                        st.info(
-                            f"Status: {batch.processing_status} - processing: {counts.processing}, "
-                            f"succeeded: {counts.succeeded}, errored: {counts.errored}"
-                        )
-                    else:
-                        with st.spinner("Fetching stage 2 results and writing workbook..."):
-                            raw_results = fetch_raw_batch_results(client, batch_id)
-                            manifest = st.session_state["lite_batch_stage2_manifest"]
-                            themes_result = st.session_state["lite_batch_themes_result"]
-
-                            theme_delta_by_key = {}
-                            for delta_key, ids in manifest.items():
-                                theme_text, theme_err, theme_blocks = raw_results.get(ids["theme_id"], (None, "missing", None))
-                                if theme_text is not None:
-                                    if not theme_text:
-                                        st.error(f"{delta_key}: batch succeeded but response contained no text (blocks: {theme_blocks})")
-                                    else:
-                                        theme_result, parse_err = parse_fenced_json_response(theme_text)
-                                        if parse_err:
-                                            st.error(f"{delta_key}: JSON parse failed — {parse_err}")
-                                            with st.expander(f"{delta_key} raw response"):
-                                                st.text(theme_text)
-                                        else:
-                                            theme_delta_by_key[delta_key] = {
-                                                "result": theme_result,
-                                                "ranked_themes": ids["ranked_themes"],
-                                            }
-                                else:
-                                    st.error(f"{delta_key} batch error: {theme_err}")
-
-                            write_all_theme_results(
-                                worksheet, parsed_quarters, period_rows, themes_result,
-                                {k: v["result"] for k, v in theme_delta_by_key.items()},
-                            )
-                            st.session_state["lite_batch_stage"] = "done"
-                            clear_batch_state(state_folder)
-
-                        st.json(themes_result)
-                        st.json({k: v["result"] for k, v in theme_delta_by_key.items()})
-
-                        output_buffer = io.BytesIO()
-                        workbook.save(output_buffer)
-                        st.download_button(
-                            label=f"Download updated {db_file.name}",
-                            data=output_buffer.getvalue(),
-                            file_name=db_file.name,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="batch_dl",
-                        )
-
-                elif stage == "done":
-                    st.success("Batch analysis complete and written to workbook. Submit a new batch to re-run.")
 
         elif st.button("Analyze", disabled=not (api_key and rows_ready)):
             client = Anthropic(api_key=api_key)
