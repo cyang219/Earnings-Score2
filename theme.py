@@ -40,7 +40,7 @@ def _oxford_join(items: list[str]) -> str:
     return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
-def build_theme_system_prompt(labels: list[str]) -> str:
+def build_theme_system_prompt(labels: list[str], existing_themes: list[str] = None) -> str:
     n = len(labels)
     annotated_labels = [f"{labels[0]} (oldest)"] + labels[1:-1] + [f"{labels[-1]} (most recent)"]
     label_description = _oxford_join(annotated_labels)
@@ -49,13 +49,19 @@ def build_theme_system_prompt(labels: list[str]) -> str:
         f'  "<period of {label}>": {{"themes": ["...", "...", "..."]}}' for label in labels[1:]
     ) + "\n}"
 
+    step5 = ""
+    existing_section = ""
+    if existing_themes:
+        step5 = "\n5. HISTORICAL THEME RECONCILIATION. After completing step 4, compare each selected theme name against the EXISTING THEMES list at the end of this prompt. If a selected theme is semantically the same underlying topic as an existing theme, rename it to match that existing name exactly (preserve its exact spelling and capitalization). Apply this only when the match is strong — the two names clearly describe the same investment topic. If no existing theme is a close semantic match, keep the name from step 4. Do not force a weak or partial match."
+        existing_section = "\n\nEXISTING THEMES FOR RECONCILIATION (step 5):\n" + "\n".join(f"- {t}" for t in existing_themes)
+
     return f"""You are given {n} quarters of earnings call Q&A bullet-point summaries for the same company, ordered chronologically and labeled {label_description}.
 
 For each consecutive delta ({delta_list}):
 1. Find 3 common themes that are heavily discussed during the Q&A sessions of both quarters in that delta.
 2. Find 2 new or emerging themes that are heavily discussed during the Q&A session of the later quarter in that delta but were lightly or never discussed during the earlier quarter.
 3. Rank all 5 of those themes (the 3 common plus the 2 emerging) by how much discussion volume each received in the LATER quarter's Q&A session only (ignore the earlier quarter's volume for this ranking). Keep only the top 3 themes by that ranking, ordered from highest to lowest volume.
-4. CROSS-DELTA CONSOLIDATION. After the top-3 themes have been selected for every delta, compare theme names across deltas (not within the same delta — that's already handled below). If a theme chosen for one delta is semantically the same underlying topic as a theme chosen for another delta, rename both occurrences to one common, consistent name (2-3 words, high-level and neutral, per the Rules below) so the same underlying theme is tracked identically wherever it recurs. Do not change the ranking, the order, or which themes were selected — only normalize the name.
+4. CROSS-DELTA CONSOLIDATION. After the top-3 themes have been selected for every delta, compare theme names across deltas (not within the same delta — that's already handled below). If a theme chosen for one delta is semantically the same underlying topic as a theme chosen for another delta, rename both occurrences to one common, consistent name (2-3 words, high-level and neutral, per the Rules below) so the same underlying theme is tracked identically wherever it recurs. Do not change the ranking, the order, or which themes were selected — only normalize the name.{step5}
 
 Rules:
 - "Heavily discussed" / theme volume is judged by the amount of Q&A dialogue (number of words) spent discussing the theme.
@@ -65,7 +71,7 @@ Rules:
 
 Output format - return ONLY valid JSON, no commentary, no markdown code fences, no preamble. Structure:
 {json_skeleton}
-Each delta's key in the JSON must be the period label (e.g. "Q1 2026") of the LATER quarter in that delta. Each delta's "themes" list must contain exactly 3 entries: the top 3 themes after the step-3 ranking and cut, ordered from highest to lowest discussion volume in the later quarter, with no indication of which were originally common vs. emerging."""
+Each delta's key in the JSON must be the period label (e.g. "Q1 2026") of the LATER quarter in that delta. Each delta's "themes" list must contain exactly 3 entries: the top 3 themes after the step-3 ranking and cut, ordered from highest to lowest discussion volume in the later quarter, with no indication of which were originally common vs. emerging.{existing_section}"""
 
 
 READTHROUGH_DESCRIPTION_LENGTH_RULE = (
@@ -334,7 +340,7 @@ def extract_qa_section(content: str) -> str:
     return content[match.start():] if match else content
 
 
-def build_themes_params(ordered_quarters) -> dict:
+def build_themes_params(ordered_quarters, existing_themes: list[str] = None) -> dict:
     header = "Input Periods: " + ", ".join(
         f"{item['label']}:{item['period']}" for item in ordered_quarters
     )
@@ -343,11 +349,11 @@ def build_themes_params(ordered_quarters) -> dict:
         for item in ordered_quarters
     )
     user_content = f"{header}\n\n{sections}"
-    system_prompt = build_theme_system_prompt([item["label"] for item in ordered_quarters])
+    system_prompt = build_theme_system_prompt([item["label"] for item in ordered_quarters], existing_themes)
     return {
         "model": MODEL,
-        "max_tokens": 32000,
-        "thinking": {"type": "enabled", "budget_tokens": 10000},
+        "max_tokens": 64000,
+        "thinking": {"type": "adaptive"},
         "output_config": {"effort": THEMES_EFFORT},
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_content}],
@@ -379,8 +385,8 @@ def build_merged_params(ordered_quarters) -> dict:
     )
     return {
         "model": READTHROUGH_MODEL,
-        "max_tokens": 32000,
-        "thinking": {"type": "enabled", "budget_tokens": 10000},
+        "max_tokens": 64000,
+        "thinking": {"type": "adaptive"},
         "output_config": {"effort": READTHROUGH_EFFORT},
         "system": build_merged_system_prompt(ordered_quarters),
         "messages": [{"role": "user", "content": sections}],
@@ -394,16 +400,16 @@ def build_theme_delta_params(themes: list[str], later_item, earlier_item) -> dic
     )
     return {
         "model": THEME_DELTA_MODEL,
-        "max_tokens": 32000,
-        "thinking": {"type": "enabled", "budget_tokens": 10000},
+        "max_tokens": 64000,
+        "thinking": {"type": "adaptive"},
         "output_config": {"effort": THEME_DELTA_EFFORT},
         "system": build_theme_delta_system_prompt(themes, later_item, earlier_item),
         "messages": [{"role": "user", "content": sections}],
     }
 
 
-def build_themes_batch_request(custom_id: str, ordered_quarters) -> dict:
-    return {"custom_id": custom_id, "params": build_themes_params(ordered_quarters)}
+def build_themes_batch_request(custom_id: str, ordered_quarters, existing_themes: list[str] = None) -> dict:
+    return {"custom_id": custom_id, "params": build_themes_params(ordered_quarters, existing_themes)}
 
 
 def build_merged_batch_request(custom_id: str, ordered_quarters) -> dict:
@@ -420,8 +426,8 @@ def _stream_text(client: Anthropic, params: dict) -> str:
     return "".join(block.text for block in response.content if block.type == "text")
 
 
-def analyze_themes(client: Anthropic, ordered_quarters):
-    raw_text = _stream_text(client, build_themes_params(ordered_quarters))
+def analyze_themes(client: Anthropic, ordered_quarters, existing_themes: list[str] = None):
+    raw_text = _stream_text(client, build_themes_params(ordered_quarters, existing_themes))
     return parse_themes_response(raw_text)
 
 
@@ -442,9 +448,9 @@ def analyze_theme_delta(client: Anthropic, themes: list[str], later_item, earlie
 BATCH_STATE_FILENAME = "theme_batch_state.json"
 
 
-def submit_stage1_batch(client: Anthropic, ordered_quarters) -> str:
+def submit_stage1_batch(client: Anthropic, ordered_quarters, existing_themes: list[str] = None) -> str:
     requests = [
-        build_themes_batch_request("themes", ordered_quarters),
+        build_themes_batch_request("themes", ordered_quarters, existing_themes),
         build_merged_batch_request("merged", ordered_quarters),
     ]
     batch = client.messages.batches.create(requests=requests)
@@ -596,6 +602,18 @@ def get_or_create_variable_theme_columns(worksheet, theme_name: str):
         if str(header_cell.value).strip() == theme_name.strip():
             return col, col + 1, col + 2
         col += 3
+
+
+def get_existing_variable_themes(worksheet) -> list[str]:
+    themes = []
+    col = DB_VARIABLE_THEME_START_COL
+    while True:
+        cell = worksheet.cell(row=DB_VARIABLE_THEME_HEADER_ROW, column=col)
+        if cell.value is None:
+            break
+        themes.append(str(cell.value).strip())
+        col += 3
+    return themes
 
 
 def write_db_row(
@@ -774,6 +792,8 @@ if theme_md_files:
 
         rows_ready = db_file and sheet_name and len(period_rows) == len(parsed_quarters)
 
+        existing_themes = get_existing_variable_themes(worksheet) if rows_ready else []
+
         use_batch = st.checkbox(
             "Use batch processing (cheaper, slower - two async stages)",
             help="Submits the analysis as Batches API jobs at ~50% lower API cost. "
@@ -808,7 +828,7 @@ if theme_md_files:
             if st.button("Submit batch", disabled=not (api_key and rows_ready and folder_valid)):
                 client = Anthropic(api_key=api_key)
                 with st.spinner("Submitting stage 1 batch (themes, read-through, bull/bear)..."):
-                    batch_id = submit_stage1_batch(client, parsed_quarters)
+                    batch_id = submit_stage1_batch(client, parsed_quarters, existing_themes)
                 st.session_state["theme_batch_state_folder"] = state_folder
                 st.session_state["theme_batch_stage"] = "stage1"
                 st.session_state["theme_batch_id"] = batch_id
@@ -973,7 +993,7 @@ if theme_md_files:
         elif st.button("Analyze Themes", disabled=not (api_key and rows_ready)):
             client = Anthropic(api_key=api_key)
             with st.spinner("Analyzing cross-quarter themes..."):
-                themes, error = analyze_themes(client, parsed_quarters)
+                themes, error = analyze_themes(client, parsed_quarters, existing_themes)
             if error:
                 st.error(error)
             else:
