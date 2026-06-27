@@ -10,7 +10,7 @@ from openpyxl.utils import column_index_from_string
 
 MODEL = "claude-sonnet-4-6"
 THEMES_EFFORT = "medium"
-THEME_DELTA_EFFORT = "medium"
+THEME_DELTA_EFFORT = "low"
 
 MIN_QUARTERS = 2
 

@@ -13,7 +13,7 @@ THEMES_EFFORT = "medium"
 READTHROUGH_MODEL = "claude-sonnet-4-6"
 READTHROUGH_EFFORT = "medium"
 THEME_DELTA_MODEL = "claude-sonnet-4-6"
-THEME_DELTA_EFFORT = "medium"
+THEME_DELTA_EFFORT = "low"
 
 MIN_QUARTERS = 2
 
