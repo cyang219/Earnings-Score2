@@ -69,55 +69,35 @@ Output format - return ONLY valid JSON, no commentary, no markdown code fences, 
 Each delta's key in the JSON must be the period label (e.g. "Q1 2026") of the LATER quarter in that delta. Each delta's "themes" list must contain exactly 3 entries: the top 3 themes after the step-3 ranking and cut, ordered from highest to lowest discussion volume in the later quarter, with no indication of which were originally common vs. emerging.{existing_section}"""
 
 
-THEME_DELTA_PROMPT_TEMPLATE = """You are an earnings-call analyst comparing management messaging and analyst tone across investment themes for one quarter-over-quarter delta. You will be given consecutive telegraphic summaries of quarterly earnings calls from a single publicly traded company.
-
-DEFINITIONS (canonical — all later references point back here):
-- MANAGEMENT MESSAGE = what management conveys about a theme in the prepared remarks and their Q&A answers: the substance, confidence, and framing of their commentary on that theme.
-- ANALYST TONE = the stance reflected in analysts' Q&A questions on a theme: whether they probe risk, press skeptically, or signal confidence, and how management's answers are received.
-- DELTA DIRECTION = the FIRST-named quarter in QUARTERS TO ANALYZE is the LATER quarter; the SECOND-named is the EARLIER quarter. A signal describes how the later quarter changed versus the earlier quarter.
-- THEME INDEPENDENCE = each theme is analyzed in complete isolation. Evidence, tone, framing, or sentiment from one theme MUST NOT be transferred to another. Management and analyst sides are also judged independently per theme; they need not move in the same direction.
-- DATA BOUNDARY = use ONLY the two quarters' transcript data provided. Do NOT use outside information.
+THEME_DELTA_PROMPT_TEMPLATE = """You are an earnings-call analyst comparing management messaging and analyst tone across a list of investment themes, one quarter-over-quarter delta at a time.
 
 THEME LIST:
 {theme_list}
 
 QUARTERS TO ANALYZE:
 {quarter_delta}
+- DELTA DIRECTION: the quarter tagged (LATER) is the later quarter; (EARLIER) is the prior. Every signal describes how the later quarter changed versus the prior.
+
+RULES (apply to every theme and every step):
+- THEME INDEPENDENCE: each theme is analyzed in complete isolation. Evidence, tone, framing, or sentiment from one theme MUST NOT be transferred to another. Management and analyst sides are judged independently per theme; they need not move in the same direction.
+- DATA BOUNDARY: use ONLY the two quarters' transcript data provided. Do NOT use outside information.
+- ANALYST TONE: the stance reflected in analysts' Q&A questions on a theme — whether they probe risk, press skeptically, or signal confidence, and how management's answers are received.
 
 TASK:
+Step 1 - Summary: For each theme in THEME LIST, summarize in a single sentence (1) the management message and (2) the analyst tone in the later quarter.
+Step 2 - Signal: For each theme, compare the later quarter against the prior quarter and assign a signal — improved, worsened, or stable.
+- If the theme is discussed in the later quarter but not the prior, judge by how positive or negative the later-quarter message and tone are in absolute terms.
+- Otherwise judge only by the change versus the prior quarter, not by absolute positivity or negativity. An improved or worsened signal requires a specific, citable QoQ change; if none can be named, the signal is stable. When evidence is ambiguous, default to stable.
+- Map each signal to its arrow: improved -> "↑:", worsened -> "↓:", stable -> "→:".
+Step 3 - Context: For each theme, summarize in a single sentence why the management message and analyst tone improved, worsened, or stayed stable, citing the QoQ change behind the signal.
 
-Step 1: PER-THEME READ. For each theme in THEME LIST, using only the two quarters (see DATA BOUNDARY), internally summarize the later quarter's management message and analyst tone for that theme, and how each compares to the earlier quarter. If a theme is absent in the earlier quarter, note this now so the special-case rule in Step 2 applies correctly. Process each theme fully and in isolation before moving to the next (see THEME INDEPENDENCE). Use this only as internal reasoning; do not output Step 1.
-
-Step 2: SIGNAL SCRATCHPAD. Start a <scratchpad> assigning a management signal and an analyst signal to each theme. Judge each signal only by the change versus the earlier quarter (see DELTA DIRECTION), not by absolute positivity or negativity.
-
-Classify each side (management, then analyst) for each theme using this rule, then assign the signal:
-- Improved: a clear positive change vs the earlier quarter — management escalates confidence/affirms progress/resolves a prior concern on that theme, OR analyst questions shift from probing a risk toward confirming an improvement.
-- Worsened: a clear negative change — management softens, walks back, or introduces a new concern on that theme, OR analyst questions surface a new risk management cannot fully address.
-- Stable: no clear directional change — framing, confidence, and tone on that theme are materially unchanged, OR positive and negative shifts roughly offset.
-An Improved or Worsened signal requires a specific, citable QoQ change on that theme for that side (see DATA BOUNDARY). If no such concrete change can be named, the signal must be Stable. When evidence is genuinely balanced or ambiguous, default to Stable rather than guessing a direction.
-Special case — theme absent in the earlier quarter: if the theme is not discussed in the earlier quarter, judge by the later quarter's absolute message/tone: positive = Improved, negative = Worsened, neutral or limited = Stable. Do not mark Improved or Worsened solely because the theme appeared.
-
-Copy the exact template below and fill in the brackets, producing one line per theme in THEME LIST order. Do NOT write anything else inside the scratchpad.
-<scratchpad>
-{scratchpad_format}
-</scratchpad>
-- Signal must be exactly one of: Improved, Worsened, Stable
-- Each signal must be evidence-linked to that theme's own data (see THEME INDEPENDENCE)
-
-Step 3: SIGNAL FIELD. Derive the "signal" field mechanically from the scratchpad Signal for that same theme and side (not an independent judgment):
-- Improved -> "↑:"   |   Worsened -> "↓:"   |   Stable -> "→:"
-If the field and the scratchpad Signal would ever disagree, the scratchpad Signal is authoritative.
-
-Step 4: MESSAGE/TONE AND RATIONALE FIELDS. For each theme, produce three fields per side (mgmt and analyst): "signal" (the arrow from Step 3), then for mgmt "message" and for analyst "tone", and "rationale" for both:
-- "message" (mgmt) / "tone" (analyst): one sentence stating the later-quarter management message or analyst tone on that theme.
-- "rationale": one sentence (a) citing one specific QoQ change on that theme and (b) explaining why it improved, worsened, or stayed stable, matching that side's signal direction.
+OUTPUT CONSTRAINTS:
 - {description_length_rule} across the "message"/"tone" field and its "rationale" field combined.
 - STYLE: abridged, telegraphic style with abbreviations.
 - Omit the final period "." at the end of every field.
+- Before producing JSON, verify that: (a) every theme in THEME LIST is present; (b) each rationale's direction matches its signal arrow; (c) every ↑ or ↓ rests on a QoQ change in direction — management or analysts actually moved, not merely repeated a prior stance or posted an in-line/as-guided number. A reaffirmation, an in-line metric, or roughly-offsetting shifts are → (stable). Exception: a theme absent in the prior quarter follows Step 2's absolute-tone rule and is not demoted for lacking a QoQ change.
 
-Before producing the JSON, verify that (a) every theme in THEME LIST is present, (b) each theme's mgmt and analyst signals comply with THEME INDEPENDENCE, and (c) each rationale's described direction matches its signal arrow and the scratchpad Signal. If any disagree, the scratchpad Signal governs; revise to match.
-
-JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per theme in THEME LIST order. Replace the theme placeholders with the exact theme names from THEME LIST. Do not output any text between </scratchpad> and the JSON block, or after the JSON block. Escape any double quotes inside field values.
+JSON FORMAT: Output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per theme in THEME LIST order. Replace the theme placeholders with the exact theme names from THEME LIST. Do not output any text before or after the JSON block. Escape any double quotes inside field values.
 
 ```json
 {json_format}
@@ -136,14 +116,6 @@ def build_quarter_delta_mapping(later_item, earlier_item) -> str:
     return (
         f"{later_item['label']} = {later_item['period']} (LATER)\n"
         f"{earlier_item['label']} = {earlier_item['period']} (EARLIER)"
-    )
-
-
-def build_theme_delta_scratchpad_format(themes: list[str]) -> str:
-    return "\n".join(
-        f"{theme} -> Mgmt Signal: [Signal]; Mgmt Driver: [2–5 word evidence]; "
-        f"Analyst Signal: [Signal]; Analyst Driver: [2–5 word evidence]"
-        for theme in themes
     )
 
 
@@ -171,7 +143,6 @@ def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item)
     return THEME_DELTA_PROMPT_TEMPLATE.format(
         theme_list=build_theme_list(themes),
         quarter_delta=build_quarter_delta_mapping(later_item, earlier_item),
-        scratchpad_format=build_theme_delta_scratchpad_format(themes),
         description_length_rule=DESCRIPTION_LENGTH_RULE,
         json_format=build_theme_delta_json_skeleton(themes),
     )
