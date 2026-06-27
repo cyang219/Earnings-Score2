@@ -13,7 +13,7 @@ THEMES_EFFORT = "medium"
 READTHROUGH_MODEL = "claude-sonnet-4-6"
 READTHROUGH_EFFORT = "medium"
 THEME_DELTA_MODEL = "claude-sonnet-4-6"
-THEME_DELTA_EFFORT = "medium"
+THEME_DELTA_EFFORT = "low"
 
 MIN_QUARTERS = 2
 
@@ -78,55 +78,35 @@ READTHROUGH_DESCRIPTION_LENGTH_RULE = (
     "The two fields combined must be 350-400 characters long, including spaces and punctuation"
 )
 
-THEME_DELTA_PROMPT_TEMPLATE = """You are an earnings-call analyst comparing management messaging and analyst tone across investment themes for one quarter-over-quarter delta. You will be given consecutive telegraphic summaries of quarterly earnings calls from a single publicly traded company.
-
-DEFINITIONS (canonical — all later references point back here):
-- MANAGEMENT MESSAGE = what management conveys about a theme in the prepared remarks and their Q&A answers: the substance, confidence, and framing of their commentary on that theme.
-- ANALYST TONE = the stance reflected in analysts' Q&A questions on a theme: whether they probe risk, press skeptically, or signal confidence, and how management's answers are received.
-- DELTA DIRECTION = the FIRST-named quarter in QUARTERS TO ANALYZE is the LATER quarter; the SECOND-named is the EARLIER quarter. A signal describes how the later quarter changed versus the earlier quarter.
-- THEME INDEPENDENCE = each theme is analyzed in complete isolation. Evidence, tone, framing, or sentiment from one theme MUST NOT be transferred to another. Management and analyst sides are also judged independently per theme; they need not move in the same direction.
-- DATA BOUNDARY = use ONLY the two quarters' transcript data provided. Do NOT use outside information.
+THEME_DELTA_PROMPT_TEMPLATE = """You are an earnings-call analyst comparing management messaging and analyst tone across a list of investment themes, one quarter-over-quarter delta at a time.
 
 THEME LIST:
 {theme_list}
 
 QUARTERS TO ANALYZE:
 {quarter_delta}
+- DELTA DIRECTION: the quarter tagged (LATER) is the later quarter; (EARLIER) is the prior. Every signal describes how the later quarter changed versus the prior.
+
+RULES (apply to every theme and every step):
+- THEME INDEPENDENCE: each theme is analyzed in complete isolation. Evidence, tone, framing, or sentiment from one theme MUST NOT be transferred to another. Management and analyst sides are judged independently per theme; they need not move in the same direction.
+- DATA BOUNDARY: use ONLY the two quarters' transcript data provided. Do NOT use outside information.
+- ANALYST TONE: the stance reflected in analysts' Q&A questions on a theme — whether they probe risk, press skeptically, or signal confidence, and how management's answers are received.
 
 TASK:
+Step 1 - Summary: For each theme in THEME LIST, summarize in a single sentence (1) the management message and (2) the analyst tone in the later quarter.
+Step 2 - Signal: For each theme, compare the later quarter against the prior quarter and assign a signal — improved, worsened, or stable.
+- If the theme is discussed in the later quarter but not the prior, judge by how positive or negative the later-quarter message and tone are in absolute terms.
+- Otherwise judge only by the change versus the prior quarter, not by absolute positivity or negativity. An improved or worsened signal requires a specific, citable QoQ change; if none can be named, the signal is stable. When evidence is ambiguous, default to stable.
+- Map each signal to its arrow: improved -> "↑:", worsened -> "↓:", stable -> "→:".
+Step 3 - Context: For each theme, summarize in a single sentence why the management message and analyst tone improved, worsened, or stayed stable, citing the QoQ change behind the signal.
 
-Step 1: PER-THEME READ. For each theme in THEME LIST, using only the two quarters (see DATA BOUNDARY), internally summarize the later quarter's management message and analyst tone for that theme, and how each compares to the earlier quarter. If a theme is absent in the earlier quarter, note this now so the special-case rule in Step 2 applies correctly. Process each theme fully and in isolation before moving to the next (see THEME INDEPENDENCE). Use this only as internal reasoning; do not output Step 1.
-
-Step 2: SIGNAL SCRATCHPAD. Start a <scratchpad> assigning a management signal and an analyst signal to each theme. Judge each signal only by the change versus the earlier quarter (see DELTA DIRECTION), not by absolute positivity or negativity.
-
-Classify each side (management, then analyst) for each theme using this rule, then assign the signal:
-- Improved: a clear positive change vs the earlier quarter — management escalates confidence/affirms progress/resolves a prior concern on that theme, OR analyst questions shift from probing a risk toward confirming an improvement.
-- Worsened: a clear negative change — management softens, walks back, or introduces a new concern on that theme, OR analyst questions surface a new risk management cannot fully address.
-- Stable: no clear directional change — framing, confidence, and tone on that theme are materially unchanged, OR positive and negative shifts roughly offset.
-An Improved or Worsened signal requires a specific, citable QoQ change on that theme for that side (see DATA BOUNDARY). If no such concrete change can be named, the signal must be Stable. When evidence is genuinely balanced or ambiguous, default to Stable rather than guessing a direction.
-Special case — theme absent in the earlier quarter: if the theme is not discussed in the earlier quarter, judge by the later quarter's absolute message/tone: positive = Improved, negative = Worsened, neutral or limited = Stable. Do not mark Improved or Worsened solely because the theme appeared.
-
-Copy the exact template below and fill in the brackets, producing one line per theme in THEME LIST order. Do NOT write anything else inside the scratchpad.
-<scratchpad>
-{scratchpad_format}
-</scratchpad>
-- Signal must be exactly one of: Improved, Worsened, Stable
-- Each signal must be evidence-linked to that theme's own data (see THEME INDEPENDENCE)
-
-Step 3: SIGNAL FIELD. Derive the "signal" field mechanically from the scratchpad Signal for that same theme and side (not an independent judgment):
-- Improved -> "↑:"   |   Worsened -> "↓:"   |   Stable -> "→:"
-If the field and the scratchpad Signal would ever disagree, the scratchpad Signal is authoritative.
-
-Step 4: MESSAGE/TONE AND RATIONALE FIELDS. For each theme, produce three fields per side (mgmt and analyst): "signal" (the arrow from Step 3), then for mgmt "message" and for analyst "tone", and "rationale" for both:
-- "message" (mgmt) / "tone" (analyst): one sentence stating the later-quarter management message or analyst tone on that theme.
-- "rationale": one sentence (a) citing one specific QoQ change on that theme and (b) explaining why it improved, worsened, or stayed stable, matching that side's signal direction.
+OUTPUT CONSTRAINTS:
 - {description_length_rule} across the "message"/"tone" field and its "rationale" field combined.
 - STYLE: abridged, telegraphic style with abbreviations.
 - Omit the final period "." at the end of every field.
+- Before producing JSON, verify that: (a) every theme in THEME LIST is present; (b) each rationale's direction matches its signal arrow; (c) every ↑ or ↓ rests on a QoQ change in direction — management or analysts actually moved, not merely repeated a prior stance or posted an in-line/as-guided number. A reaffirmation, an in-line metric, or roughly-offsetting shifts are → (stable). Exception: a theme absent in the prior quarter follows Step 2's absolute-tone rule and is not demoted for lacking a QoQ change.
 
-Before producing the JSON, verify that (a) every theme in THEME LIST is present, (b) each theme's mgmt and analyst signals comply with THEME INDEPENDENCE, and (c) each rationale's described direction matches its signal arrow and the scratchpad Signal. If any disagree, the scratchpad Signal governs; revise to match.
-
-JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per theme in THEME LIST order. Replace the theme placeholders with the exact theme names from THEME LIST. Do not output any text between </scratchpad> and the JSON block, or after the JSON block. Escape any double quotes inside field values.
+JSON FORMAT: Output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per theme in THEME LIST order. Replace the theme placeholders with the exact theme names from THEME LIST. Do not output any text before or after the JSON block. Escape any double quotes inside field values.
 
 ```json
 {json_format}
@@ -142,109 +122,43 @@ def build_readthrough_quarter_mapping(ordered_quarters) -> str:
     return "QUARTER MAPPING:\n" + "\n".join(lines)
 
 
-def build_readthrough_scratchpad_format(labels: list[str]) -> str:
-    lines = [
-        f"{later}_vs_{earlier} ({later} vs {earlier}) -> Signal: [Signal]; "
-        f"Driver: [2–5 word external business factor that drove signal]"
-        for later, earlier in build_delta_pairs(labels)
-    ]
-    return "\n".join(lines)
+MERGED_PROMPT_TEMPLATE = """You are an equity research analyst producing three signals per quarter-over-quarter delta from one company's consecutive earnings calls: a sector READ-THROUGH, a BULL forward case, and a BEAR forward case. Inputs are consecutive quarterly transcripts (or telegraphic summaries) ordered oldest to newest; the task is identical regardless of company, sector, fiscal calendar, or quarter count.
 
-
-def build_bullbear_scratchpad_format(labels: list[str]) -> str:
-    lines = []
-    for later, earlier in build_delta_pairs(labels):
-        lines.append(
-            f"{later}_vs_{earlier} ({later} vs {earlier}) -> Bull Signal: [Signal]; "
-            f"Bull Driver: [2–5 word forward-case evidence that drove signal]"
-        )
-        lines.append(
-            f"{later}_vs_{earlier} ({later} vs {earlier}) -> Bear Signal: [Signal]; "
-            f"Bear Driver: [2–5 word forward-case evidence that drove signal]"
-        )
-    return "\n".join(lines)
-
-
-MERGED_PROMPT_TEMPLATE = """You are an equity research analyst producing two outputs from the same set of earnings calls: (1) sector read-throughs, and (2) forward 6–9 month bull/bear thesis changes. You will be given a set of consecutive quarterly earnings call transcripts (or telegraphic summaries) from a single publicly traded company, ordered oldest to newest. The same task applies regardless of the company, sector, fiscal calendar, or number of quarters provided.
-
-DEFINITIONS (canonical — all later references point back here):
-- EXTERNAL BUSINESS FACTORS = industry/macro conditions management describes that read across to sector peers (e.g., end-market demand, customer/end-user spending, pricing environment, input or supply availability, competitive dynamics, regulatory or macro conditions). EXCLUDES the reporting company's own KPIs and internal initiatives (e.g., its own revenue, margins, segment results, product roadmap, capital returns, restructuring). The READ-THROUGH track uses external business factors ONLY.
-- FORWARD EXPECTATION = what an investor on a given side (bull or bear) would, based on that quarter's call, expect to happen to the business over the next 6–9 months. Infer expectations from the whole call but PRIORITIZE the Q&A dialogue, where management is tested and forward-looking concerns surface.
-- BULL EXPECTATION = the forward case a bullish investor would hold; BEAR EXPECTATION = the forward case a bearish investor would hold. Each delta is evaluated separately for both sides. The two sides are NOT required to move in opposite directions — independently assess each side's evidence; it is valid for both to strengthen, both to weaken, or both to stay stable on the same delta.
-- DELTA DIRECTION = in each delta the FIRST-named quarter is the LATER quarter and the SECOND-named quarter is the EARLIER quarter (e.g., in "Q-2_vs_Q-3", Q-2 is later, Q-3 is earlier). A signal describes how the later quarter changed versus the earlier quarter.
-- DELTA = a QoQ comparison between one quarter and the immediately preceding quarter. With N quarters there are N-1 deltas, each comparing adjacent quarters.
-- ANALYSIS INDEPENDENCE = the READ-THROUGH track and the BULL/BEAR track are three separate analyses of the same delta (read-through, bull, bear) and MUST be derived independently of one another. Do not let the dominant factor, direction, or framing chosen for one track carry over into another track for the same delta — each track re-derives its own dominant evidence from the full call from scratch, even if that means reaching a different direction than another track. In particular: a track's signal must NEVER be softened toward Stable, or strengthened/weakened, merely because another track on the same delta already moved in some direction — judge each track solely on the size and concreteness of ITS OWN QoQ evidence. Complete all of Step 1 and Step 2 for the READ-THROUGH track for every delta before starting Step 1 for the BULL/BEAR track; when working the BULL/BEAR track, do not re-read or reference the READ-THROUGH scratchpad lines you already wrote.
-
+QUARTER MAPPING:
 {quarter_mapping}
+- DELTA: each adjacent pair is one delta; N quarters give N-1 deltas. In a "LATER_vs_EARLIER" key the first quarter is the later one, the second the earlier. Every signal describes how the later quarter changed versus the earlier.
 
-TASK:
+DEFINITIONS:
+- EXTERNAL BUSINESS FACTORS: industry/macro conditions management describes that read across to sector peers — end-market demand, customer spending, pricing, input/supply availability, competitive dynamics, regulatory/macro. EXCLUDES the company's own KPIs and internal initiatives (its revenue, margins, segments, roadmap, capital returns, restructuring). The READ-THROUGH uses external factors ONLY.
+- FORWARD EXPECTATION: what a bull (or bear) investor would, on that quarter's call, expect for the business over the next 6–9 months. Infer from the whole call but prioritize the Q&A, where management is tested. Bull and bear are assessed separately and need not move in opposite directions.
 
-=== READ-THROUGH TRACK ===
+RULES (apply to every delta and every signal):
+- ANALYSIS INDEPENDENCE: read-through, bull, and bear are three independent reads of the same delta. Derive each from its own evidence; never soften, strengthen, or flip one because another track moved. They may point in different directions; sharing an underlying fact is fine as long as each is weighed on its own.
+- DATA BOUNDARY: use ONLY the provided transcripts. No outside information.
 
-Step 1A: QUARTER-LEVEL READ-THROUGH. For each quarter in the QUARTER MAPPING, infer the industry-wide read-through from management's message, using external business factors only (see DEFINITIONS). Use this only as internal reasoning; do not output Step 1A.
-Step 2A: QOQ SIGNAL SCRATCHPAD — READ-THROUGH. Start a <scratchpad> to assign a signal to each delta defined in the QUARTER MAPPING. Judge each signal only by how the later quarter's read-through changed versus the earlier quarter (see DELTA DIRECTION), not by whether the later quarter is positive or negative in absolute terms.
+TASK — for each delta, assign three signals (read-through, bull, bear), each Strengthened / Weakened / Stable:
+- READ-THROUGH: select the single dominant external business factor. It MUST be discussed in both quarters of the delta — a factor absent from the earlier quarter is ineligible (no QoQ baseline to measure against). Among eligible factors, pick the one most relevant to sector peers, breaking ties by emphasis (airtime / strongest language). If no external factor appears in both quarters, the read-through is Stable. Then judge how the selected factor's read-through changed QoQ.
+- BULL / BEAR: for each side, judge how that side's forward 6–9 month case changed QoQ, prioritizing Q&A evidence.
 
-Select the single dominant external business factor for each delta using this ordered tie-breaker (apply in order; stop at the first criterion that picks one factor):
-   1. A factor management discusses in BOTH quarters of the delta.
-   2. Of those, the factor most relevant to industry peers / sector read-through.
-   3. Of those, the factor management emphasizes most (most airtime / strongest language).
-   4. Of those, a recurring factor over a one-off factor.
+Signal rule (all three):
+- Strengthened: a clear positive QoQ change — escalated language, a raised/affirmed external indicator or guidance, a broadened demand base, a resolved concern (bull/bear: analysts shift from probing a risk to confirming it, corroborated by management).
+- Weakened: a clear negative QoQ change — softened/walked-back language, a new or amplified headwind, a narrowed demand base, a new risk management cannot fully address.
+- Stable: no clear directional change, or offsetting shifts.
+A Strengthened or Weakened signal requires a specific, citable QoQ change in direction — not a reaffirmation, an in-line/as-guided number, or a repeated stance. If none can be named, the signal is Stable. When evidence is ambiguous, default to Stable.
+Map each signal to its arrow: Strengthened -> "↑:", Weakened -> "↓:", Stable -> "→:". The read-through arrow fills the "signal" field; each side's arrow fills its "topic" field.
 
-Classify the change in the dominant factor's read-through using this rule, then assign the signal:
-   - Strengthened: the later quarter shows a clear positive change in the dominant external factor — e.g. management escalates language (such as "strong" to "insatiable"), raises a quantified external indicator, broadens the demand base, or removes a previously cited concern.
-   - Weakened: the later quarter shows a clear negative change — management softens language, introduces or amplifies an external headwind, narrows the demand base, or walks back prior optimism.
-   - Stable: no clear directional change — the dominant factor's framing, language intensity, and any cited external indicators are materially unchanged, OR positive and negative shifts in that factor roughly offset.
+OUTPUT FIELDS (per delta):
+- READ-THROUGH "read_through": one sentence stating the later quarter's macro/industry read-through (external factors only). "rationale": one sentence citing one specific QoQ contrast and why it strengthened/weakened/held. {description_length_rule} across the two combined.
+- BULL/BEAR "expectation" (per side): one sentence stating the later quarter's forward 6–9 month case. "context": one sentence citing one specific QoQ change in that side's case and why it strengthened/weakened/held. {description_length_rule} across the two combined.
+- STYLE: abridged, telegraphic, abbreviations. Omit the final period "." at the end of every field.
 
-A Strengthened or Weakened signal requires a specific, citable QoQ change in the dominant factor (a language shift, a changed external indicator, or a changed demand-base statement). If no such concrete change can be named, the signal must be Stable. When evidence is genuinely balanced or ambiguous, default to Stable rather than guessing a direction.
+Before producing JSON, verify for each delta that: (a) every rationale/context direction matches its arrow; (b) each ↑ or ↓ rests on a real directional QoQ change — else → (stable); (c) the read-through factor was discussed in both quarters; (d) no track's signal was adjusted to agree or disagree with another track's on the same delta.
 
-Copy the exact template below and fill in the brackets, producing one line per delta. Do NOT write anything else inside this part of the scratchpad.
-
-{readthrough_scratchpad_format}
-   - Signal must be exactly one of: Strengthened, Weakened, Stable
-   - Driver must be concrete, evidence-linked, and an external business factor
-
-=== BULL/BEAR TRACK ===
-
-Step 1B: FORWARD 6–9 MONTH BULL/BEAR EXPECTATIONS. For each quarter in the QUARTER MAPPING, infer both the bull and the bear forward expectation for the next 6–9 months (see DEFINITIONS), prioritizing the Q&A dialogue. Treat this as a fresh read of the transcripts — do not consult or reuse the dominant factor you selected for the READ-THROUGH track (see ANALYSIS INDEPENDENCE). Use this only as internal reasoning; do not output Step 1B.
-
-Step 2B: QOQ SIGNAL SCRATCHPAD — BULL/BEAR. Continue the same <scratchpad> to assign a signal to each side (bull and bear) of each delta defined in the QUARTER MAPPING. You MUST evaluate every delta. Judge each signal only by how the later quarter's forward expectation changed versus the earlier quarter (see DELTA DIRECTION), not by how positive or negative the expectation is in absolute terms, and not by the READ-THROUGH signal already assigned to that delta (see ANALYSIS INDEPENDENCE).
-
-Classify the change in each side's forward expectation using this rule, then assign the signal:
-   - Strengthened: the later quarter shows a clear positive change in that side's forward case — e.g. management escalates supporting language, raises or affirms forward guidance/indicators that side relies on, resolves a prior concern, or analysts' Q&A questions shift from probing a risk to confirming an improvement (and management's answer corroborates it).
-   - Weakened: the later quarter shows a clear negative change in that side's forward case — management softens or walks back supporting language, introduces or amplifies a forward risk, or analysts' Q&A questions surface a new risk that management cannot fully address.
-   - Stable: no clear directional change — the forward case's framing, language intensity, and relevant forward indicators are materially unchanged, OR positive and negative shifts roughly offset.
-A Strengthened or Weakened signal requires a specific, citable QoQ change in that side's forward case (a language shift, a changed forward indicator/guidance, or new Q&A evidence). If no such concrete change can be named, the signal must be Stable. When evidence is genuinely balanced or ambiguous, default to Stable rather than guessing a direction. If the dominant evidence for this side is the same underlying fact the READ-THROUGH track already used, that is fine — but you must reach that conclusion by independently weighing this side's own evidence, not by copying the READ-THROUGH track's signal.
-
-Copy the exact template below and fill in the brackets, producing the required lines per delta. Do NOT write anything else inside this part of the scratchpad.
-{bullbear_scratchpad_format}
-</scratchpad>
-   - Signal must be exactly one of: Strengthened, Weakened, Stable
-   - Driver must be concrete, evidence-linked, and tied to that side's forward case
-   - Each signal must be evidence-linked to that side's forward case for those specific quarters
-
-=== OUTPUT FIELDS ===
-
-Step 3: SIGNAL/TOPIC FIELDS. Derive each track's signal field mechanically from its own scratchpad Signal for the same delta (and same side, for bull/bear) — not an independent judgment, and not derived from another track's field:
-   - Strengthened -> "↑:"   |   Weakened -> "↓:"   |   Stable -> "→:"
-If a field and its own scratchpad Signal would ever disagree, the scratchpad Signal is authoritative.
-
-Step 4: DESCRIPTION FIELDS.
-   - READ-THROUGH "read_through" / "rationale": each exactly one sentence (external business factors only). "read_through" states the inferred macro/industry read-through for the later quarter. "rationale" (a) cites one specific QoQ contrast between the two quarters, and (b) explains why that contrast caused the read-through to strengthen, weaken, or stay stable, matching the delta's signal direction. {description_length_rule} across the two fields combined. Omit the final period "." at the end of both fields.
-   - BULL/BEAR "expectation" / "context" (per side): "expectation" is one sentence stating the inferred forward-looking 6–9 month expectation for the later quarter on that side. "context" is one sentence (a) citing one specific QoQ change in that side's forward case and (b) explaining why that change caused the expectation to strengthen, weaken, or stay stable, matching that side's signal direction. {description_length_rule} across the "expectation" and "context" fields combined. STYLE: abridged, telegraphic style with abbreviations. Omit the final period "." at the end of both fields.
-
-Before producing the JSON, verify for each delta that: (a) the read-through rationale's described direction matches its signal arrow and its own scratchpad Signal; (b) each side's context's described direction matches its topic arrow and its own scratchpad Signal; (c) no track's signal was adjusted to agree or disagree with another track's signal for the same delta (see ANALYSIS INDEPENDENCE) — if any check fails, the relevant scratchpad Signal governs; revise the field to match.
-
-JSON FORMAT: After </scratchpad>, output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per delta in the same order as the scratchpad. No text before or after the JSON block. Escape any double quotes inside field values.
+JSON FORMAT: Output ONLY a valid JSON block using ```json tags, following the exact schema below, with one object per delta matching the periods and order in the schema. No text before or after the JSON block. Escape any double quotes inside field values.
 
 ```json
 {json_format}
 ```"""
-
-
-def build_merged_scratchpad_format(labels: list[str]) -> str:
-    readthrough_lines = build_readthrough_scratchpad_format(labels)
-    bullbear_lines = build_bullbear_scratchpad_format(labels)
-    return readthrough_lines, bullbear_lines
 
 
 def build_merged_json_skeleton(labels: list[str]) -> str:
@@ -272,11 +186,8 @@ def build_merged_json_skeleton(labels: list[str]) -> str:
 
 def build_merged_system_prompt(ordered_quarters) -> str:
     labels = [item["label"] for item in ordered_quarters]
-    readthrough_scratchpad_format, bullbear_scratchpad_format = build_merged_scratchpad_format(labels)
     return MERGED_PROMPT_TEMPLATE.format(
         quarter_mapping=build_readthrough_quarter_mapping(ordered_quarters),
-        readthrough_scratchpad_format=readthrough_scratchpad_format,
-        bullbear_scratchpad_format=bullbear_scratchpad_format,
         description_length_rule=READTHROUGH_DESCRIPTION_LENGTH_RULE,
         json_format=build_merged_json_skeleton(labels),
     )
@@ -290,14 +201,6 @@ def build_quarter_delta_mapping(later_item, earlier_item) -> str:
     return (
         f"{later_item['label']} = {later_item['period']} (LATER)\n"
         f"{earlier_item['label']} = {earlier_item['period']} (EARLIER)"
-    )
-
-
-def build_theme_delta_scratchpad_format(themes: list[str]) -> str:
-    return "\n".join(
-        f"{theme} -> Mgmt Signal: [Signal]; Mgmt Driver: [2–5 word evidence]; "
-        f"Analyst Signal: [Signal]; Analyst Driver: [2–5 word evidence]"
-        for theme in themes
     )
 
 
@@ -325,7 +228,6 @@ def build_theme_delta_system_prompt(themes: list[str], later_item, earlier_item)
     return THEME_DELTA_PROMPT_TEMPLATE.format(
         theme_list=build_theme_list(themes),
         quarter_delta=build_quarter_delta_mapping(later_item, earlier_item),
-        scratchpad_format=build_theme_delta_scratchpad_format(themes),
         description_length_rule=READTHROUGH_DESCRIPTION_LENGTH_RULE,
         json_format=build_theme_delta_json_skeleton(themes),
     )
