@@ -601,7 +601,7 @@ with st.sidebar:
     api_key = st.text_input("Anthropic API key", type="password")
 
 theme_md_files = st.file_uploader(
-    "Upload telegraphic .md files (one company, 2 or more consecutive quarters)",
+    "Upload telegraphic .md files (one or more companies, 2 or more consecutive quarters each)",
     type=["md"],
     accept_multiple_files=True,
 )
@@ -611,14 +611,183 @@ db_file = st.file_uploader(
     type=["xlsx"],
 )
 
+
+def run_batch_analysis_for_group(client: Anthropic, group: dict, status):
+    parsed_quarters = group["quarters"]
+    worksheet = group["worksheet"]
+    period_rows = group["period_rows"]
+    existing_themes = group["existing_themes"]
+
+    status.info("Submitting stage 1 batch (themes, read-through, bull/bear)...")
+    batch_id = submit_stage1_batch(client, parsed_quarters, existing_themes)
+
+    while True:
+        batch = client.messages.batches.retrieve(batch_id)
+        if batch.processing_status == "ended":
+            break
+        counts = batch.request_counts
+        status.info(
+            f"Stage 1 running — processing: {counts.processing}, "
+            f"succeeded: {counts.succeeded}, errored: {counts.errored}. Checking again in 30s..."
+        )
+        time.sleep(30)
+
+    status.info("Fetching stage 1 results...")
+    raw_results = fetch_raw_batch_results(client, batch_id)
+
+    themes_text, themes_err, _ = raw_results.get("themes", (None, "missing", None))
+    themes_result = None
+    if themes_text:
+        themes_result, parse_err = parse_themes_response(themes_text)
+        if parse_err:
+            st.error(f"themes: {parse_err}")
+            with st.expander("themes raw response"):
+                st.text(themes_text)
+    else:
+        st.error(f"themes batch error: {themes_err}")
+
+    readthrough_result = None
+    bullbear_result = None
+    merged_text, merged_err, merged_blocks = raw_results.get("merged", (None, "missing", None))
+    if merged_text is not None:
+        if not merged_text:
+            st.error(f"merged: batch succeeded but response contained no text (blocks: {merged_blocks})")
+        else:
+            merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
+            if merged_parse_err:
+                st.error(f"merged: JSON parse failed — {merged_parse_err}")
+                with st.expander("merged raw response"):
+                    st.text(merged_text)
+            else:
+                readthrough_result, bullbear_result = split_merged_result(merged_result)
+    else:
+        st.error(f"merged batch error: {merged_err}")
+
+    if themes_result is None:
+        status.error("Stage 1 failed to produce themes — cannot continue.")
+        return
+
+    st.json(themes_result)
+
+    status.info("Submitting stage 2 batch (per-delta theme analysis)...")
+    stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
+
+    while True:
+        batch = client.messages.batches.retrieve(stage2_id)
+        if batch.processing_status == "ended":
+            break
+        counts = batch.request_counts
+        status.info(
+            f"Stage 2 running — processing: {counts.processing}, "
+            f"succeeded: {counts.succeeded}, errored: {counts.errored}. Checking again in 30s..."
+        )
+        time.sleep(30)
+
+    status.info("Fetching stage 2 results and writing workbook...")
+    raw_results = fetch_raw_batch_results(client, stage2_id)
+    readthrough_lookup = build_delta_lookup(readthrough_result) if readthrough_result else {}
+    bullbear_lookup = build_delta_lookup(bullbear_result) if bullbear_result else {}
+
+    theme_delta_by_key = {}
+    for delta_key, ids in manifest.items():
+        merged_text, merged_err, merged_blocks = raw_results.get(ids["merged_id"], (None, "missing", None))
+        merged_result = None
+        if merged_text is not None:
+            if not merged_text:
+                st.error(f"{delta_key}: batch succeeded but response contained no text (blocks: {merged_blocks})")
+            else:
+                merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
+                if merged_parse_err:
+                    st.error(f"{delta_key}: JSON parse failed — {merged_parse_err}")
+                    with st.expander(f"{delta_key} raw response"):
+                        st.text(merged_text)
+        else:
+            st.error(f"{delta_key} batch error: {merged_err}")
+
+        common_result, ranked_result = split_theme_delta_result(merged_result, ids["ranked_themes"])
+        theme_delta_by_key[delta_key] = {
+            "common": common_result,
+            "ranked": ranked_result,
+            "ranked_themes": ids["ranked_themes"],
+        }
+
+    write_all_theme_results(
+        worksheet, parsed_quarters, period_rows, themes_result,
+        readthrough_lookup, bullbear_lookup, theme_delta_by_key,
+    )
+
+    st.json(readthrough_result)
+    st.json(bullbear_result)
+    st.json(theme_delta_by_key)
+    status.success(f"{group['ticker']}: batch analysis complete.")
+
+
+def run_interactive_analysis_for_group(client: Anthropic, group: dict):
+    parsed_quarters = group["quarters"]
+    worksheet = group["worksheet"]
+    period_rows = group["period_rows"]
+    existing_themes = group["existing_themes"]
+
+    with st.spinner(f"{group['ticker']}: analyzing cross-quarter themes..."):
+        themes, error = analyze_themes(client, parsed_quarters, existing_themes)
+    if error:
+        st.error(error)
+        return
+
+    st.json(themes)
+
+    with st.spinner(f"{group['ticker']}: analyzing sector read-through and bull/bear signals..."):
+        merged, merged_error = analyze_merged(client, parsed_quarters)
+    readthrough_lookup = {}
+    bullbear_lookup = {}
+    if merged_error:
+        st.error(merged_error)
+    else:
+        readthrough, bullbear = split_merged_result(merged)
+        st.json(readthrough)
+        readthrough_lookup = build_delta_lookup(readthrough)
+        st.json(bullbear)
+        bullbear_lookup = build_delta_lookup(bullbear)
+
+    theme_delta_by_key = {}
+    for later_item, earlier_item in zip(parsed_quarters[1:], parsed_quarters[:-1]):
+        delta_key = f"{later_item['label']}_vs_{earlier_item['label']}"
+        ranked_themes = themes.get(later_item["period"], {}).get("themes", [])
+        if not ranked_themes:
+            st.error(f"{delta_key}: no ranked themes found for {later_item['period']}")
+            continue
+
+        merged_themes = COMMON_THEME_SET + ranked_themes
+        with st.spinner(f"{group['ticker']}: analyzing themes for {delta_key}..."):
+            merged_result, merged_error = analyze_theme_delta(client, merged_themes, later_item, earlier_item)
+
+        if merged_error:
+            st.error(f"{delta_key}: {merged_error}")
+
+        common_result, ranked_result = split_theme_delta_result(merged_result, ranked_themes)
+
+        theme_delta_by_key[delta_key] = {
+            "common": common_result,
+            "ranked": ranked_result,
+            "ranked_themes": ranked_themes,
+        }
+        st.write(f"Theme delta analysis — {delta_key}")
+        st.json(theme_delta_by_key[delta_key])
+
+    write_all_theme_results(
+        worksheet, parsed_quarters, period_rows, themes,
+        readthrough_lookup, bullbear_lookup, theme_delta_by_key,
+    )
+
+
 if theme_md_files:
-    parsed_quarters = []
+    parsed_files = []
     for f in theme_md_files:
         ticker, period = parse_md_metadata(f.name)
         if period is None:
             st.error(f"{f.name}: could not parse a quarter/period (e.g. 'Q1 2026') from filename")
             continue
-        parsed_quarters.append(
+        parsed_files.append(
             {
                 "filename": f.name,
                 "ticker": ticker,
@@ -627,238 +796,93 @@ if theme_md_files:
             }
         )
 
-    if len(parsed_quarters) < MIN_QUARTERS:
-        st.warning(f"Need at least {MIN_QUARTERS} valid .md files; found {len(parsed_quarters)}.")
+    if not parsed_files:
+        st.warning(f"Need at least {MIN_QUARTERS} valid .md files; found 0.")
     else:
-        parsed_quarters.sort(key=lambda item: quarter_sort_key(item["period"]))
-        labels = build_quarter_labels(len(parsed_quarters))
-        for label, item in zip(labels, parsed_quarters):
-            item["label"] = label
+        files_by_ticker = {}
+        for item in parsed_files:
+            files_by_ticker.setdefault(item["ticker"], []).append(item)
 
-        st.write({item["label"]: f"{item['ticker']} {item['period']}" for item in parsed_quarters})
+        workbook = openpyxl.load_workbook(db_file) if db_file else None
 
-        ticker = parsed_quarters[0]["ticker"]
-        sheet_name = None
-        period_rows = {}
-        if db_file:
-            workbook = openpyxl.load_workbook(db_file)
-            sheet_name = find_ticker_worksheet(workbook, ticker)
-            if sheet_name is None:
-                st.error(f"No tab found matching ticker '{ticker}' in {db_file.name}")
-            else:
-                st.success(f"Found matching tab: '{sheet_name}'")
-                worksheet = workbook[sheet_name]
-                missing_periods = []
-                for item in parsed_quarters:
-                    row = find_period_row(worksheet, item["period"])
-                    if row is None:
-                        missing_periods.append(item["period"])
+        ticker_groups = []
+        for ticker, items in files_by_ticker.items():
+            if len(items) < MIN_QUARTERS:
+                st.warning(
+                    f"{ticker}: need at least {MIN_QUARTERS} valid .md files; found {len(items)}. Skipping."
+                )
+                continue
+
+            items.sort(key=lambda item: quarter_sort_key(item["period"]))
+            labels = build_quarter_labels(len(items))
+            for label, item in zip(labels, items):
+                item["label"] = label
+
+            group = {
+                "ticker": ticker,
+                "quarters": items,
+                "sheet_name": None,
+                "worksheet": None,
+                "period_rows": {},
+                "rows_ready": False,
+                "existing_themes": [],
+            }
+
+            with st.expander(f"{ticker} — {len(items)} quarters", expanded=True):
+                st.write({item["label"]: f"{item['ticker']} {item['period']}" for item in items})
+
+                if workbook is not None:
+                    sheet_name = find_ticker_worksheet(workbook, ticker)
+                    if sheet_name is None:
+                        st.error(f"No tab found matching ticker '{ticker}' in {db_file.name}")
                     else:
-                        period_rows[item["period"]] = row
-                if missing_periods:
-                    st.error(
-                        f"No row found in '{sheet_name}' for: {', '.join(missing_periods)} "
-                        f"(expected column A format like '{period_to_db_format(parsed_quarters[0]['period'])}')"
-                    )
+                        st.success(f"Found matching tab: '{sheet_name}'")
+                        worksheet = workbook[sheet_name]
+                        missing_periods = []
+                        period_rows = {}
+                        for item in items:
+                            row = find_period_row(worksheet, item["period"])
+                            if row is None:
+                                missing_periods.append(item["period"])
+                            else:
+                                period_rows[item["period"]] = row
+                        if missing_periods:
+                            st.error(
+                                f"No row found in '{sheet_name}' for: {', '.join(missing_periods)} "
+                                f"(expected column A format like '{period_to_db_format(items[0]['period'])}')"
+                            )
+                        else:
+                            st.success(
+                                "Matched rows: "
+                                + ", ".join(f"{period} -> row {row}" for period, row in period_rows.items())
+                            )
+                            group["sheet_name"] = sheet_name
+                            group["worksheet"] = worksheet
+                            group["period_rows"] = period_rows
+                            group["rows_ready"] = True
+                            group["existing_themes"] = get_existing_variable_themes(worksheet)
                 else:
-                    st.success(
-                        "Matched rows: "
-                        + ", ".join(f"{period} -> row {row}" for period, row in period_rows.items())
-                    )
-        else:
-            st.info(f"Upload DB format.xlsx above to update the '{ticker}' tab with this analysis.")
+                    st.info(f"Upload DB format.xlsx above to update the '{ticker}' tab with this analysis.")
 
-        rows_ready = db_file and sheet_name and len(period_rows) == len(parsed_quarters)
+            ticker_groups.append(group)
 
-        existing_themes = get_existing_variable_themes(worksheet) if rows_ready else []
+        ready_groups = [g for g in ticker_groups if g["rows_ready"]]
 
         use_batch = st.checkbox(
             "Use batch processing (cheaper, ~50% cost)",
             help="Submits the analysis as Batches API jobs at ~50% lower API cost. "
             "Runs automatically: stage 1 (themes, read-through, bull/bear) runs first, "
             "then stage 2 (per-delta theme analysis) is submitted and awaited. "
-            "Keep this tab open until the download button appears.",
+            "Tickers are processed one at a time. Keep this tab open until the download button appears.",
         )
 
         if use_batch:
-            if st.button("Run batch", disabled=not (api_key and rows_ready)):
+            if st.button("Run batch", disabled=not (api_key and ready_groups)):
                 client = Anthropic(api_key=api_key)
-                status = st.empty()
-
-                status.info("Submitting stage 1 batch (themes, read-through, bull/bear)...")
-                batch_id = submit_stage1_batch(client, parsed_quarters, existing_themes)
-
-                while True:
-                    batch = client.messages.batches.retrieve(batch_id)
-                    if batch.processing_status == "ended":
-                        break
-                    counts = batch.request_counts
-                    status.info(
-                        f"Stage 1 running — processing: {counts.processing}, "
-                        f"succeeded: {counts.succeeded}, errored: {counts.errored}. Checking again in 30s..."
-                    )
-                    time.sleep(30)
-
-                status.info("Fetching stage 1 results...")
-                raw_results = fetch_raw_batch_results(client, batch_id)
-
-                themes_text, themes_err, _ = raw_results.get("themes", (None, "missing", None))
-                themes_result = None
-                if themes_text:
-                    themes_result, parse_err = parse_themes_response(themes_text)
-                    if parse_err:
-                        st.error(f"themes: {parse_err}")
-                        with st.expander("themes raw response"):
-                            st.text(themes_text)
-                else:
-                    st.error(f"themes batch error: {themes_err}")
-
-                readthrough_result = None
-                bullbear_result = None
-                merged_text, merged_err, merged_blocks = raw_results.get("merged", (None, "missing", None))
-                if merged_text is not None:
-                    if not merged_text:
-                        st.error(f"merged: batch succeeded but response contained no text (blocks: {merged_blocks})")
-                    else:
-                        merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
-                        if merged_parse_err:
-                            st.error(f"merged: JSON parse failed — {merged_parse_err}")
-                            with st.expander("merged raw response"):
-                                st.text(merged_text)
-                        else:
-                            readthrough_result, bullbear_result = split_merged_result(merged_result)
-                else:
-                    st.error(f"merged batch error: {merged_err}")
-
-                if themes_result is not None:
-                    st.json(themes_result)
-
-                    status.info("Submitting stage 2 batch (per-delta theme analysis)...")
-                    stage2_id, manifest = submit_stage2_batch(client, themes_result, parsed_quarters)
-
-                    while True:
-                        batch = client.messages.batches.retrieve(stage2_id)
-                        if batch.processing_status == "ended":
-                            break
-                        counts = batch.request_counts
-                        status.info(
-                            f"Stage 2 running — processing: {counts.processing}, "
-                            f"succeeded: {counts.succeeded}, errored: {counts.errored}. Checking again in 30s..."
-                        )
-                        time.sleep(30)
-
-                    status.info("Fetching stage 2 results and writing workbook...")
-                    raw_results = fetch_raw_batch_results(client, stage2_id)
-                    readthrough_lookup = build_delta_lookup(readthrough_result) if readthrough_result else {}
-                    bullbear_lookup = build_delta_lookup(bullbear_result) if bullbear_result else {}
-
-                    theme_delta_by_key = {}
-                    for delta_key, ids in manifest.items():
-                        merged_text, merged_err, merged_blocks = raw_results.get(ids["merged_id"], (None, "missing", None))
-                        merged_result = None
-                        if merged_text is not None:
-                            if not merged_text:
-                                st.error(f"{delta_key}: batch succeeded but response contained no text (blocks: {merged_blocks})")
-                            else:
-                                merged_result, merged_parse_err = parse_fenced_json_response(merged_text)
-                                if merged_parse_err:
-                                    st.error(f"{delta_key}: JSON parse failed — {merged_parse_err}")
-                                    with st.expander(f"{delta_key} raw response"):
-                                        st.text(merged_text)
-                        else:
-                            st.error(f"{delta_key} batch error: {merged_err}")
-
-                        common_result, ranked_result = split_theme_delta_result(
-                            merged_result, ids["ranked_themes"]
-                        )
-                        theme_delta_by_key[delta_key] = {
-                            "common": common_result,
-                            "ranked": ranked_result,
-                            "ranked_themes": ids["ranked_themes"],
-                        }
-
-                    write_all_theme_results(
-                        worksheet, parsed_quarters, period_rows, themes_result,
-                        readthrough_lookup, bullbear_lookup, theme_delta_by_key,
-                    )
-
-                    st.json(readthrough_result)
-                    st.json(bullbear_result)
-                    st.json(theme_delta_by_key)
-
-                    output_buffer = io.BytesIO()
-                    workbook.save(output_buffer)
-                    status.success("Batch analysis complete.")
-                    st.download_button(
-                        label=f"Download updated {db_file.name}",
-                        data=output_buffer.getvalue(),
-                        file_name=db_file.name,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="batch_dl",
-                    )
-                else:
-                    status.error("Stage 1 failed to produce themes — cannot continue.")
-            elif not api_key:
-                st.info("Enter your Anthropic API key in the sidebar to begin.")
-
-        elif st.button("Analyze Themes", disabled=not (api_key and rows_ready)):
-            client = Anthropic(api_key=api_key)
-            with st.spinner("Analyzing cross-quarter themes..."):
-                themes, error = analyze_themes(client, parsed_quarters, existing_themes)
-            if error:
-                st.error(error)
-            else:
-                st.session_state["theme_analysis_result"] = themes
-                st.json(themes)
-
-                with st.spinner("Analyzing sector read-through and bull/bear signals..."):
-                    merged, merged_error = analyze_merged(client, parsed_quarters)
-                readthrough_lookup = {}
-                bullbear_lookup = {}
-                if merged_error:
-                    st.error(merged_error)
-                else:
-                    readthrough, bullbear = split_merged_result(merged)
-                    st.session_state["readthrough_analysis_result"] = readthrough
-                    st.json(readthrough)
-                    readthrough_lookup = build_delta_lookup(readthrough)
-                    st.session_state["bullbear_analysis_result"] = bullbear
-                    st.json(bullbear)
-                    bullbear_lookup = build_delta_lookup(bullbear)
-
-                theme_delta_by_key = {}
-                for later_item, earlier_item in zip(parsed_quarters[1:], parsed_quarters[:-1]):
-                    delta_key = f"{later_item['label']}_vs_{earlier_item['label']}"
-                    ranked_themes = themes.get(later_item["period"], {}).get("themes", [])
-                    if not ranked_themes:
-                        st.error(f"{delta_key}: no ranked themes found for {later_item['period']}")
-                        continue
-
-                    merged_themes = COMMON_THEME_SET + ranked_themes
-                    with st.spinner(f"Analyzing themes for {delta_key}..."):
-                        merged_result, merged_error = analyze_theme_delta(
-                            client, merged_themes, later_item, earlier_item
-                        )
-
-                    if merged_error:
-                        st.error(f"{delta_key}: {merged_error}")
-
-                    common_result, ranked_result = split_theme_delta_result(merged_result, ranked_themes)
-
-                    theme_delta_by_key[delta_key] = {
-                        "common": common_result,
-                        "ranked": ranked_result,
-                        "ranked_themes": ranked_themes,
-                    }
-                    st.write(f"Theme delta analysis — {delta_key}")
-                    st.json(theme_delta_by_key[delta_key])
-
-                st.session_state["theme_delta_analysis_result"] = theme_delta_by_key
-
-                write_all_theme_results(
-                    worksheet, parsed_quarters, period_rows, themes,
-                    readthrough_lookup, bullbear_lookup, theme_delta_by_key,
-                )
+                for group in ready_groups:
+                    st.subheader(group["ticker"])
+                    status = st.empty()
+                    run_batch_analysis_for_group(client, group, status)
 
                 output_buffer = io.BytesIO()
                 workbook.save(output_buffer)
@@ -867,7 +891,25 @@ if theme_md_files:
                     data=output_buffer.getvalue(),
                     file_name=db_file.name,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="batch_dl",
                 )
+            elif not api_key:
+                st.info("Enter your Anthropic API key in the sidebar to begin.")
+
+        elif st.button("Analyze Themes", disabled=not (api_key and ready_groups)):
+            client = Anthropic(api_key=api_key)
+            for group in ready_groups:
+                st.subheader(group["ticker"])
+                run_interactive_analysis_for_group(client, group)
+
+            output_buffer = io.BytesIO()
+            workbook.save(output_buffer)
+            st.download_button(
+                label=f"Download updated {db_file.name}",
+                data=output_buffer.getvalue(),
+                file_name=db_file.name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 elif not api_key:
     st.info("Enter your Anthropic API key in the sidebar to begin.")
 else:
